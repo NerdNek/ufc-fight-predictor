@@ -1,0 +1,42 @@
+{
+  "timestamp": "2026-02-01T22:06:33.348335",
+  "model_type": "LogisticRegression",
+  "split_info": {
+    "train_rows": 5222,
+    "test_rows": 1306,
+    "train_date_range": "2010-03-21 to 2022-05-21",
+    "test_date_range": "2022-05-21 to 2024-12-07",
+    "train_red_win_rate": 0.5844504021447721,
+    "test_red_win_rate": 0.5627871362940275
+  },
+  "baselines": [
+    {
+      "name": "Majority Class",
+      "majority_class": "Red",
+      "accuracy": 0.5627871362940275
+    },
+    {
+      "name": "Odds Only (LogReg)",
+      "accuracy": 0.6684532924961715,
+      "roc_auc": 0.7229422066549913
+    }
+  ],
+  "model_metrics": {
+    "accuracy": 0.6294027565084227,
+    "roc_auc": 0.6987597841238071,
+    "confusion_matrix": [
+      [
+        400,
+        171
+      ],
+      [
+        313,
+        422
+      ]
+    ],
+    "classification_report": "              precision    recall  f1-score   support\n\n        Blue       0.56      0.70      0.62       571\n         Red       0.71      0.57      0.64       735\n\n    accuracy                           0.63      1306\n   macro avg       0.64      0.64      0.63      1306\nweighted avg       0.65      0.63      0.63      1306\n"
+  },
+  "feature_count": 76,
+  "beat_majority_baseline": true,
+  "beat_odds_baseline": false
+}
