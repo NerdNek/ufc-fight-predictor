@@ -1,0 +1,82 @@
+{
+  "timestamp": "2026-02-04T09:48:03.490499",
+  "model": "HistGradientBoostingClassifier",
+  "n_train": 5222,
+  "n_test": 1306,
+  "n_features": 89,
+  "interaction_gate_threshold": 0.75,
+  "metrics": {
+    "accuracy": 0.6316998468606432,
+    "roc_auc": 0.6924407591407842,
+    "log_loss": 0.6417379697334116,
+    "brier_score": 0.22323161211767664,
+    "confusion_matrix": [
+      [
+        273,
+        298
+      ],
+      [
+        183,
+        552
+      ]
+    ],
+    "classification_report": {
+      "0": {
+        "precision": 0.5986842105263158,
+        "recall": 0.47810858143607704,
+        "f1-score": 0.5316455696202531,
+        "support": 571.0
+      },
+      "1": {
+        "precision": 0.6494117647058824,
+        "recall": 0.7510204081632653,
+        "f1-score": 0.6965299684542586,
+        "support": 735.0
+      },
+      "accuracy": 0.6316998468606432,
+      "macro avg": {
+        "precision": 0.6240479876160991,
+        "recall": 0.6145644947996711,
+        "f1-score": 0.6140877690372559,
+        "support": 1306.0
+      },
+      "weighted avg": {
+        "precision": 0.6272330254742342,
+        "recall": 0.6316998468606432,
+        "f1-score": 0.6244403882596054,
+        "support": 1306.0
+      }
+    }
+  },
+  "ablation": {
+    "odds_only_tree": {
+      "model": "HGB Odds-Only",
+      "n_features": 5,
+      "accuracy": 0.6324655436447167,
+      "roc_auc": 0.6782777559359996,
+      "log_loss": 0.6517387195157502,
+      "brier_score": 0.22524638044847223
+    },
+    "skill_only_tree": {
+      "model": "HGB Skill-Only",
+      "n_features": 17,
+      "accuracy": 0.5918836140888208,
+      "roc_auc": 0.5981986489867401,
+      "log_loss": 0.7011841101523286,
+      "brier_score": 0.24877258118869844
+    },
+    "full_tree": {
+      "model": "HGB Full",
+      "n_features": 89,
+      "accuracy": 0.6316998468606432,
+      "roc_auc": 0.6924407591407842,
+      "log_loss": 0.6417379697334116,
+      "brier_score": 0.22323161211767664
+    }
+  },
+  "baselines_comparison": {
+    "majority_class_accuracy": 0.5628,
+    "odds_only_roc_auc": 0.7229,
+    "logreg_day3_roc_auc": 0.6988
+  }
+}
