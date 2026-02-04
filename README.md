@@ -15,7 +15,8 @@ ufc-fight-predictor/
 └── src/
     ├── clean.py           # Data cleaning (leakage removal)
     ├── features.py        # Feature engineering (differentials)
-    └── train_baseline.py  # Baseline model training
+    ├── train_baseline.py  # Baseline model training
+    └── train_tree_day4a.py # Tree model with interaction features
 ```
 
 ## Quick Start
@@ -33,6 +34,7 @@ pip install -r requirements.txt
 python src/clean.py           # Remove leakage columns
 python src/features.py        # Generate differential features
 python src/train_baseline.py  # Train baseline model
+python src/train_tree_day4a.py # Train tree model with ablation
 ```
 
 ## Model Performance
@@ -44,23 +46,25 @@ python src/train_baseline.py  # Train baseline model
 
 ### Results
 
-| Model | Accuracy | ROC-AUC |
-|-------|----------|---------|
-| Majority Class (always Red) | 56.28% | - |
-| Odds Only (single feature) | 66.85% | 0.723 |
-| **Logistic Regression (77 features)** | **62.94%** | **0.699** |
+| Model | Accuracy | ROC-AUC | Log Loss |
+|-------|----------|---------|----------|
+| Majority Class (always Red) | 56.28% | - | - |
+| **Odds Only (LogReg)** | **66.85%** | **0.723** | - |
+| Logistic Regression (77 features) | 62.94% | 0.699 | - |
+| HGB Odds-Only | 63.25% | 0.678 | 0.64 |
+| HGB Skill-Only | 59.19% | 0.598 | 0.68 |
+| HGB Full (89 features) | 63.17% | 0.692 | 0.64 |
 
 ### Key Findings
-- ✅ Beat majority baseline (+6.7%)
-- ✅ ROC-AUC > 0.60 milestone
-- ⚠️ Odds-only baseline is very strong (markets are efficient)
-- 📈 Room for improvement with advanced models
 
-### Top Predictive Features
-1. `ev_diff` - Expected value difference
-2. `odds_diff` - Betting odds difference
-3. `ReachDif` - Reach advantage
-4. `dec_split_wins_diff` - Decision experience
+- **Odds-only remains strongest overall** (AUC 0.723), consistent with market efficiency
+- **Ablation study confirms**: odds features alone carry most predictive signal (AUC 0.678); skills add +0.014 incremental AUC
+- **Segment analysis**: Model shows +8.3% lift over majority baseline in "confident market" fights (not-close-odds segment)
+- **Further work**: Focus on calibration, feature selection, and alternative model architectures
+
+### Ablation Study Insight
+
+The tree model with gated interactions approached odds performance in confident-market fights. Skill features provide modest incremental value when combined with odds, but do not outperform the market on their own.
 
 ## Data Pipeline
 
@@ -76,6 +80,11 @@ Removes post-fight columns: `Finish`, `FinishRound`, `TotalFightTimeSecs`, etc.
 - Time-based train/test split
 - Standardized features
 - Logistic regression with balanced class weights
+
+### 4. Tree Model (train_tree_day4a.py)
+- Interaction features (close-odds gates, favorite/underdog gates)
+- HistGradientBoostingClassifier with segment evaluation
+- Ablation study comparing odds-only, skill-only, and full models
 
 ## License
 
