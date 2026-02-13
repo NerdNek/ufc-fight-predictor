@@ -2,33 +2,33 @@
   "close_odds": {
     "n": 234,
     "red_win_rate": 0.5512820512820513,
-    "model_accuracy": 0.5555555555555556,
+    "model_accuracy": 0.5641025641025641,
     "majority_baseline": 0.5512820512820513,
-    "lift_vs_baseline": 0.004273504273504258,
-    "roc_auc": 0.5830933923957181
+    "lift_vs_baseline": 0.012820512820512775,
+    "roc_auc": 0.5545957918050942
   },
   "not_close_odds": {
     "n": 1072,
     "red_win_rate": 0.5652985074626866,
-    "model_accuracy": 0.648320895522388,
+    "model_accuracy": 0.6548507462686567,
     "majority_baseline": 0.5652985074626866,
-    "lift_vs_baseline": 0.08302238805970141,
-    "roc_auc": 0.7120639102536863
+    "lift_vs_baseline": 0.08955223880597007,
+    "roc_auc": 0.7055340727205768
   },
   "red_favorites": {
     "n": 429,
     "red_win_rate": 0.3333333333333333,
-    "model_accuracy": 0.5687645687645687,
+    "model_accuracy": 0.5827505827505828,
     "majority_baseline": 0.6666666666666667,
-    "lift_vs_baseline": -0.09790209790209803,
-    "roc_auc": 0.5299036627707956
+    "lift_vs_baseline": -0.08391608391608396,
+    "roc_auc": 0.5251601545307839
   },
   "red_underdogs": {
     "n": 643,
     "red_win_rate": 0.7200622083981337,
-    "model_accuracy": 0.7013996889580093,
+    "model_accuracy": 0.702954898911353,
     "majority_baseline": 0.7200622083981337,
-    "lift_vs_baseline": -0.018662519440124425,
-    "roc_auc": 0.6570914326853851
+    "lift_vs_baseline": -0.017107309486780742,
+    "roc_auc": 0.639404847612191
   }
 }

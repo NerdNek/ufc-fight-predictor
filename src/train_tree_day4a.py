@@ -35,7 +35,7 @@ from sklearn.ensemble import HistGradientBoostingClassifier
 # CONFIGURATION
 # ============================================================================
 
-DATA_PATH = Path("data/processed/ufc_features.csv")
+DATA_PATH = Path("data/processed/features_with_odds.csv")
 MODEL_PATH = Path("models/hgb_day4a.joblib")
 REPORT_PATH = Path("reports/day4a_metrics.json")
 SEGMENT_PATH = Path("reports/day4a_segment_metrics.json")
