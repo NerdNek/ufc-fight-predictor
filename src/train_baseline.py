@@ -342,7 +342,9 @@ def print_summary(results: dict):
 def main():
     # Setup paths
     project_root = Path(__file__).parent.parent
-    input_path = project_root / 'data' / 'processed' / 'ufc_features.csv'
+    # Use features_with_odds.csv for accuracy-focused modeling.
+    # Swap to features_no_odds.csv for skill-only (no sportsbook leakage) modeling.
+    input_path = project_root / 'data' / 'processed' / 'features_with_odds.csv'
     
     print("=" * 60)
     print("UFC Fight Predictor - Baseline Model Training")

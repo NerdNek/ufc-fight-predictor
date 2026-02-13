@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-02-01T22:06:33.348335",
+  "timestamp": "2026-02-13T14:11:35.783942",
   "model_type": "LogisticRegression",
   "split_info": {
     "train_rows": 5222,
@@ -22,21 +22,21 @@
     }
   ],
   "model_metrics": {
-    "accuracy": 0.6294027565084227,
-    "roc_auc": 0.6987597841238071,
+    "accuracy": 0.6316998468606432,
+    "roc_auc": 0.698254643363475,
     "confusion_matrix": [
       [
-        400,
-        171
+        398,
+        173
       ],
       [
-        313,
-        422
+        308,
+        427
       ]
     ],
-    "classification_report": "              precision    recall  f1-score   support\n\n        Blue       0.56      0.70      0.62       571\n         Red       0.71      0.57      0.64       735\n\n    accuracy                           0.63      1306\n   macro avg       0.64      0.64      0.63      1306\nweighted avg       0.65      0.63      0.63      1306\n"
+    "classification_report": "              precision    recall  f1-score   support\n\n        Blue       0.56      0.70      0.62       571\n         Red       0.71      0.58      0.64       735\n\n    accuracy                           0.63      1306\n   macro avg       0.64      0.64      0.63      1306\nweighted avg       0.65      0.63      0.63      1306\n"
   },
-  "feature_count": 76,
+  "feature_count": 73,
   "beat_majority_baseline": true,
   "beat_odds_baseline": false
 }
