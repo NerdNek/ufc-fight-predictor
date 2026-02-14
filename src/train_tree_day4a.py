@@ -39,6 +39,7 @@ DATA_PATH = Path("data/processed/features_with_odds.csv")
 MODEL_PATH = Path("models/hgb_day4a.joblib")
 REPORT_PATH = Path("reports/day4a_metrics.json")
 SEGMENT_PATH = Path("reports/day4a_segment_metrics.json")
+SWEEP_PATH = Path("reports/day5_close_threshold_sweep.json")
 
 # Columns to exclude from features
 EXCLUDE_COLS = ["target", "RedFighter", "BlueFighter", "Date", "stance_matchup"]
@@ -48,6 +49,9 @@ TRAIN_RATIO = 0.80
 
 # Interaction feature configuration
 CLOSE_ODDS_THRESHOLD = 0.75  # abs(odds_diff) < this → "close odds"
+
+# Quantile sweep configuration
+SWEEP_QUANTILES = [0.10, 0.20, 0.30]
 
 
 # ============================================================================
@@ -320,6 +324,108 @@ def segment_eval(
     return seg
 
 
+def quantile_close_odds_sweep(
+    df_test: pd.DataFrame,
+    y_test: np.ndarray,
+    proba: np.ndarray,
+    odds_col: str = "odds_diff",
+    quantiles: list = None,
+):
+    """
+    Evaluate model on the closest q% of fights by abs(odds_diff).
+
+    Uses quantiles of abs(odds_diff) computed on the test set so the segment
+    size is stable regardless of odds scaling.
+
+    Returns dict with percentile info and per-quantile segment metrics.
+    """
+    if quantiles is None:
+        quantiles = SWEEP_QUANTILES
+
+    if odds_col not in df_test.columns:
+        print("   ! odds_diff not found, skipping quantile sweep")
+        return None
+
+    odds_abs = df_test[odds_col].abs().values
+
+    # Compute reference percentiles for transparency
+    ref_qs = [0.10, 0.20, 0.30, 0.50, 0.80, 0.90, 0.95]
+    ref_percentiles = {}
+    for q in ref_qs:
+        ref_percentiles[f"p{int(q*100):02d}"] = float(np.quantile(odds_abs, q))
+
+    print(f"\n[SWEEP] Quantile close-odds sweep (test set, N={len(y_test)})...")
+    print("   abs(odds_diff) percentiles:")
+    for label, val in ref_percentiles.items():
+        print(f"      {label}: {val:.1f}")
+
+    sweep_results = []
+
+    print(f"\n   {'q':>5} {'Threshold':>10} {'N':>6} {'RedWin%':>8} {'Baseline':>9} {'Acc':>7} {'AUC':>7}")
+    print("   " + "-" * 60)
+
+    for q in quantiles:
+        threshold = float(np.quantile(odds_abs, q))
+        mask = odds_abs <= threshold
+
+        n = int(mask.sum())
+        if n < 10:
+            print(f"   {q:.2f}  {threshold:>10.1f} {n:>6}  (too few samples, skipped)")
+            sweep_results.append({
+                "q": q,
+                "threshold": threshold,
+                "n": n,
+                "red_win_rate": None,
+                "baseline_acc": None,
+                "model_acc": None,
+                "model_auc": None,
+                "note": "fewer than 10 samples",
+            })
+            continue
+
+        y_seg = y_test[mask]
+        p_seg = proba[mask]
+        pred_seg = (p_seg >= 0.5).astype(int)
+
+        red_win_rate = float(y_seg.mean())
+        baseline_acc = float(max(red_win_rate, 1 - red_win_rate))
+        model_acc = float(accuracy_score(y_seg, pred_seg))
+
+        try:
+            model_auc = float(roc_auc_score(y_seg, p_seg))
+        except ValueError:
+            model_auc = None  # single class
+
+        auc_str = f"{model_auc:.4f}" if model_auc is not None else "  N/A"
+        print(
+            f"   {q:.2f}  {threshold:>10.1f} {n:>6} "
+            f"{red_win_rate*100:>7.1f}% "
+            f"{baseline_acc:>8.4f} "
+            f"{model_acc:.4f} "
+            f"{auc_str}"
+        )
+
+        entry = {
+            "q": q,
+            "threshold": threshold,
+            "n": n,
+            "red_win_rate": red_win_rate,
+            "baseline_acc": baseline_acc,
+            "model_acc": model_acc,
+            "model_auc": model_auc,
+        }
+        if model_auc is None:
+            entry["note"] = "single class in segment"
+        sweep_results.append(entry)
+
+    return {
+        "input_file": str(DATA_PATH),
+        "date_split": {"train_frac": TRAIN_RATIO},
+        "odds_abs_percentiles": ref_percentiles,
+        "sweep": sweep_results,
+    }
+
+
 def threshold_sweep(
     df: pd.DataFrame,
     thresholds: list = [0.25, 0.5, 0.75, 1.0, 1.25],
@@ -553,6 +659,14 @@ def main():
 
     print(f"[SAVE] Saving segment metrics to: {SEGMENT_PATH}")
     SEGMENT_PATH.write_text(json.dumps(seg, indent=2))
+
+    # Quantile close-odds sweep
+    sweep = quantile_close_odds_sweep(
+        test_df, y_test, proba, odds_col="odds_diff"
+    )
+    if sweep is not None:
+        print(f"[SAVE] Saving sweep report to: {SWEEP_PATH}")
+        SWEEP_PATH.write_text(json.dumps(sweep, indent=2))
 
     # Summary
     print("\n" + "=" * 60)
