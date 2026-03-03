@@ -1,9 +1,13 @@
 """
-predict.py - Predict UFC Fight Outcome
+predict.py - Predict UFC Fight Outcome (Dual-Mode)
 
-Loads the trained HGB model and predicts the outcome for a given
-Red/Blue fighter pair by looking up the most recent matching row
-in the feature dataset.
+Mode A (Historical):  When the exact fighter pair exists in the
+                      features dataset, uses the real fight-level row
+                      with real odds → with-odds HGB model.
+
+Mode B (Synthetic):   When the pair does NOT exist, constructs a
+                      synthetic matchup from each fighter's latest
+                      individual stats → no-odds HGB model.
 
 Usage:
     python src/predict.py --red "Israel Adesanya" --blue "Sean Strickland"
@@ -24,13 +28,66 @@ from joblib import load
 # ============================================================================
 
 PROJECT_ROOT = Path(__file__).parent.parent
-MODEL_PATH = PROJECT_ROOT / "models" / "hgb_day4a.joblib"
-DATA_PATH = PROJECT_ROOT / "data" / "processed" / "features_with_odds.csv"
+MODEL_WITH_ODDS = PROJECT_ROOT / "models" / "hgb_day4a.joblib"
+MODEL_NO_ODDS = PROJECT_ROOT / "models" / "hgb_no_odds.joblib"
+FEATURES_PATH = PROJECT_ROOT / "data" / "processed" / "features_with_odds.csv"
+CLEANED_PATH = PROJECT_ROOT / "data" / "processed" / "ufc_cleaned.csv"
 SCHEMA_PATH = PROJECT_ROOT / "data" / "processed" / "feature_schema.json"
 
 # Must match train_tree_day4a.py configuration
 CLOSE_ODDS_THRESHOLD = 0.75
 EXCLUDE_COLS = ["target", "RedFighter", "BlueFighter", "Date", "stance_matchup"]
+
+# Mapping: pre-existing Dif columns → (Red column, Blue column)
+EXISTING_DIFF_PAIRS = {
+    "LoseStreakDif": ("RedCurrentLoseStreak", "BlueCurrentLoseStreak"),
+    "WinStreakDif": ("RedCurrentWinStreak", "BlueCurrentWinStreak"),
+    "LongestWinStreakDif": ("RedLongestWinStreak", "BlueLongestWinStreak"),
+    "WinDif": ("RedWins", "BlueWins"),
+    "LossDif": ("RedLosses", "BlueLosses"),
+    "TotalRoundDif": ("RedTotalRoundsFought", "BlueTotalRoundsFought"),
+    "TotalTitleBoutDif": ("RedTotalTitleBouts", "BlueTotalTitleBouts"),
+    "KODif": ("RedWinsByKO", "BlueWinsByKO"),
+    "SubDif": ("RedWinsBySubmission", "BlueWinsBySubmission"),
+    "HeightDif": ("RedHeightCms", "BlueHeightCms"),
+    "ReachDif": ("RedReachCms", "BlueReachCms"),
+    "AgeDif": ("RedAge", "BlueAge"),
+    "SigStrDif": ("RedAvgSigStrLanded", "BlueAvgSigStrLanded"),
+    "AvgSubAttDif": ("RedAvgSubAtt", "BlueAvgSubAtt"),
+    "AvgTDDif": ("RedAvgTDLanded", "BlueAvgTDLanded"),
+}
+
+# Computed skill diffs (mirrors features.py SKILL_STATS)
+SKILL_STATS = {
+    "sig_str_pct_diff": ("RedAvgSigStrPct", "BlueAvgSigStrPct"),
+    "td_pct_diff": ("RedAvgTDPct", "BlueAvgTDPct"),
+    "dec_maj_wins_diff": ("RedWinsByDecisionMajority", "BlueWinsByDecisionMajority"),
+    "dec_split_wins_diff": ("RedWinsByDecisionSplit", "BlueWinsByDecisionSplit"),
+    "dec_unan_wins_diff": ("RedWinsByDecisionUnanimous", "BlueWinsByDecisionUnanimous"),
+    "tko_doc_wins_diff": ("RedWinsByTKODoctorStoppage", "BlueWinsByTKODoctorStoppage"),
+    "draws_diff": ("RedDraws", "BlueDraws"),
+}
+
+# Ranking pairs (mirrors features.py RANKING_PAIRS)
+RANKING_PAIRS = {
+    "wc_rank_diff": ("RMatchWCRank", "BMatchWCRank"),
+    "pfp_rank_diff": ("RPFPRank", "BPFPRank"),
+    "hw_rank_diff": ("RHeavyweightRank", "BHeavyweightRank"),
+    "lhw_rank_diff": ("RLightHeavyweightRank", "BLightHeavyweightRank"),
+    "mw_rank_diff": ("RMiddleweightRank", "BMiddleweightRank"),
+    "ww_rank_diff": ("RWelterweightRank", "BWelterweightRank"),
+    "lw_rank_diff": ("RLightweightRank", "BLightweightRank"),
+    "fw_rank_diff": ("RFeatherweightRank", "BFeatherweightRank"),
+    "bw_rank_diff": ("RBantamweightRank", "BBantamweightRank"),
+    "flw_rank_diff": ("RFlyweightRank", "BFlyweightRank"),
+    "w_sw_rank_diff": ("RWStrawweightRank", "BWStrawweightRank"),
+    "w_flw_rank_diff": ("RWFlyweightRank", "BWFlyweightRank"),
+    "w_bw_rank_diff": ("RWBantamweightRank", "BWBantamweightRank"),
+    "w_fw_rank_diff": ("RWFeatherweightRank", "BWFeatherweightRank"),
+}
+
+UNRANKED_SENTINEL = 99
+RANK_DIFF_CLIP = (-15, 15)
 
 
 # ============================================================================
@@ -93,18 +150,14 @@ def build_interactions(df: pd.DataFrame, odds_col: str = "odds_diff",
 
 
 # ============================================================================
-# LOOKUP & ALIGNMENT
+# HISTORICAL LOOKUP (Mode A)
 # ============================================================================
 
-def find_fight_row(df: pd.DataFrame, red: str, blue: str) -> pd.Series:
+def find_fight_row(df: pd.DataFrame, red: str, blue: str) -> pd.Series | None:
     """
     Find the most recent row matching the given Red/Blue fighter pair.
 
-    Searches for exact match (case-insensitive) on RedFighter and
-    BlueFighter columns. If duplicates exist, returns the row with the
-    latest Date.
-
-    Returns the matched row as a Series, or raises SystemExit if not found.
+    Returns the matched row as a Series, or None if not found.
     """
     red_lower = red.strip().lower()
     blue_lower = blue.strip().lower()
@@ -123,20 +176,9 @@ def find_fight_row(df: pd.DataFrame, red: str, blue: str) -> pd.Series:
             & (df["BlueFighter"].str.lower().str.strip() == red_lower)
         )
         matches = df[mask_rev]
-        if not matches.empty:
-            print(f"[NOTE] Found match with corners swapped "
-                  f"(Red={blue}, Blue={red} in dataset)")
 
     if matches.empty:
-        print(f"[ERROR] No fight found for:")
-        print(f"   Red:  {red}")
-        print(f"   Blue: {blue}")
-        print(f"\nTip: Names must match the dataset exactly.")
-        print(f"     Try searching with: python -c \"import pandas as pd; "
-              f"df=pd.read_csv('{DATA_PATH}'); "
-              f"print(df[df['RedFighter'].str.contains('LastName', case=False)]"
-              f"[['RedFighter','BlueFighter','Date']].to_string())\"")
-        sys.exit(1)
+        return None
 
     # Pick the most recent fight
     if "Date" in matches.columns:
@@ -153,12 +195,6 @@ def find_fight_row(df: pd.DataFrame, red: str, blue: str) -> pd.Series:
 def enforce_schema_lock(row_df: pd.DataFrame, model_cols: list) -> pd.DataFrame:
     """
     Enforce strict column alignment between the feature row and the model.
-
-    Compares set(row_df.columns) to set(model_cols). If there is any
-    mismatch, prints the missing and extra columns and exits with an
-    error. This prevents silent feature drift.
-
-    If columns match, reorders row_df to the model's expected order.
     """
     row_set = set(row_df.columns)
     model_set = set(model_cols)
@@ -167,25 +203,520 @@ def enforce_schema_lock(row_df: pd.DataFrame, model_cols: list) -> pd.DataFrame:
     extra = sorted(row_set - model_set)
 
     if missing or extra:
-        print("\n[FATAL] Schema lock violation -- feature drift detected!")
+        msg_parts = ["Schema lock violation -- feature drift detected!"]
         if missing:
-            print(f"   Missing columns ({len(missing)}):")
-            for col in missing:
-                print(f"      - {col}")
+            msg_parts.append(f"Missing ({len(missing)}): {missing[:10]}")
         if extra:
-            print(f"   Extra columns ({len(extra)}):")
-            for col in extra:
-                print(f"      + {col}")
-        print(f"\n   Model expects {len(model_cols)} features, got {len(row_df.columns)}")
-        print("   Fix: re-run features.py and re-train, or update predict.py")
-        sys.exit(1)
+            msg_parts.append(f"Extra ({len(extra)}): {extra[:10]}")
+        msg_parts.append(f"Model expects {len(model_cols)}, got {len(row_df.columns)}")
+        raise ValueError(" | ".join(msg_parts))
 
-    # Reorder to match model's exact column order
     return row_df[model_cols]
 
 
 # ============================================================================
-# MAIN
+# SYNTHETIC MATCHUP (Mode B)
+# ============================================================================
+
+def get_fighter_profile(df: pd.DataFrame, name: str) -> dict:
+    """
+    Find a fighter's most recent appearance and extract their stats.
+
+    Searches both RedFighter and BlueFighter columns, returns a
+    normalized dict of stats keyed by generic column names (without
+    Red/Blue prefix).
+    """
+    name_lower = name.strip().lower()
+
+    # Check Red side
+    red_mask = df["RedFighter"].str.lower().str.strip() == name_lower
+    # Check Blue side
+    blue_mask = df["BlueFighter"].str.lower().str.strip() == name_lower
+
+    red_matches = df[red_mask]
+    blue_matches = df[blue_mask]
+
+    if red_matches.empty and blue_matches.empty:
+        raise ValueError(
+            f"Fighter '{name}' not found in the dataset. "
+            f"Name must match exactly (case-insensitive)."
+        )
+
+    # Combine all appearances and pick the most recent
+    all_appearances = []
+
+    if not red_matches.empty:
+        red_matches = red_matches.copy()
+        red_matches["_date"] = pd.to_datetime(red_matches["Date"], errors="coerce")
+        red_matches["_side"] = "Red"
+        all_appearances.append(red_matches)
+
+    if not blue_matches.empty:
+        blue_matches = blue_matches.copy()
+        blue_matches["_date"] = pd.to_datetime(blue_matches["Date"], errors="coerce")
+        blue_matches["_side"] = "Blue"
+        all_appearances.append(blue_matches)
+
+    combined = pd.concat(all_appearances).sort_values("_date", ascending=False)
+    latest = combined.iloc[0]
+    side = latest["_side"]
+
+    # Extract per-fighter stats based on which side they appeared on
+    profile = {"name": name, "side": side, "date": str(latest.get("Date", "unknown"))}
+
+    # Map Red/Blue columns to generic names
+    # Per-fighter stat columns (Red* or Blue* prefix)
+    red_stat_cols = {
+        "CurrentLoseStreak": "RedCurrentLoseStreak",
+        "CurrentWinStreak": "RedCurrentWinStreak",
+        "Draws": "RedDraws",
+        "AvgSigStrLanded": "RedAvgSigStrLanded",
+        "AvgSigStrPct": "RedAvgSigStrPct",
+        "AvgSubAtt": "RedAvgSubAtt",
+        "AvgTDLanded": "RedAvgTDLanded",
+        "AvgTDPct": "RedAvgTDPct",
+        "LongestWinStreak": "RedLongestWinStreak",
+        "Losses": "RedLosses",
+        "TotalRoundsFought": "RedTotalRoundsFought",
+        "TotalTitleBouts": "RedTotalTitleBouts",
+        "WinsByDecisionMajority": "RedWinsByDecisionMajority",
+        "WinsByDecisionSplit": "RedWinsByDecisionSplit",
+        "WinsByDecisionUnanimous": "RedWinsByDecisionUnanimous",
+        "WinsByKO": "RedWinsByKO",
+        "WinsBySubmission": "RedWinsBySubmission",
+        "WinsByTKODoctorStoppage": "RedWinsByTKODoctorStoppage",
+        "Wins": "RedWins",
+        "Stance": "RedStance",
+        "HeightCms": "RedHeightCms",
+        "ReachCms": "RedReachCms",
+        "WeightLbs": "RedWeightLbs",
+        "Age": "RedAge",
+    }
+
+    blue_stat_cols = {
+        "CurrentLoseStreak": "BlueCurrentLoseStreak",
+        "CurrentWinStreak": "BlueCurrentWinStreak",
+        "Draws": "BlueDraws",
+        "AvgSigStrLanded": "BlueAvgSigStrLanded",
+        "AvgSigStrPct": "BlueAvgSigStrPct",
+        "AvgSubAtt": "BlueAvgSubAtt",
+        "AvgTDLanded": "BlueAvgTDLanded",
+        "AvgTDPct": "BlueAvgTDPct",
+        "LongestWinStreak": "BlueLongestWinStreak",
+        "Losses": "BlueLosses",
+        "TotalRoundsFought": "BlueTotalRoundsFought",
+        "TotalTitleBouts": "BlueTotalTitleBouts",
+        "WinsByDecisionMajority": "BlueWinsByDecisionMajority",
+        "WinsByDecisionSplit": "BlueWinsByDecisionSplit",
+        "WinsByDecisionUnanimous": "BlueWinsByDecisionUnanimous",
+        "WinsByKO": "BlueWinsByKO",
+        "WinsBySubmission": "BlueWinsBySubmission",
+        "WinsByTKODoctorStoppage": "BlueWinsByTKODoctorStoppage",
+        "Wins": "BlueWins",
+        "Stance": "BlueStance",
+        "HeightCms": "BlueHeightCms",
+        "ReachCms": "BlueReachCms",
+        "WeightLbs": "BlueWeightLbs",
+        "Age": "BlueAge",
+    }
+
+    # Ranking columns use R/B prefixes (not Red/Blue)
+    red_rank_cols = {
+        "MatchWCRank": "RMatchWCRank",
+        "PFPRank": "RPFPRank",
+        "HeavyweightRank": "RHeavyweightRank",
+        "LightHeavyweightRank": "RLightHeavyweightRank",
+        "MiddleweightRank": "RMiddleweightRank",
+        "WelterweightRank": "RWelterweightRank",
+        "LightweightRank": "RLightweightRank",
+        "FeatherweightRank": "RFeatherweightRank",
+        "BantamweightRank": "RBantamweightRank",
+        "FlyweightRank": "RFlyweightRank",
+        "WStrawweightRank": "RWStrawweightRank",
+        "WFlyweightRank": "RWFlyweightRank",
+        "WBantamweightRank": "RWBantamweightRank",
+        "WFeatherweightRank": "RWFeatherweightRank",
+    }
+
+    blue_rank_cols = {
+        "MatchWCRank": "BMatchWCRank",
+        "PFPRank": "BPFPRank",
+        "HeavyweightRank": "BHeavyweightRank",
+        "LightHeavyweightRank": "BLightHeavyweightRank",
+        "MiddleweightRank": "BMiddleweightRank",
+        "WelterweightRank": "BWelterweightRank",
+        "LightweightRank": "BLightweightRank",
+        "FeatherweightRank": "BFeatherweightRank",
+        "BantamweightRank": "BBantamweightRank",
+        "FlyweightRank": "BFlyweightRank",
+        "WStrawweightRank": "BWStrawweightRank",
+        "WFlyweightRank": "BWFlyweightRank",
+        "WBantamweightRank": "BWBantamweightRank",
+        "WFeatherweightRank": "BWFeatherweightRank",
+    }
+
+    stat_map = red_stat_cols if side == "Red" else blue_stat_cols
+    rank_map = red_rank_cols if side == "Red" else blue_rank_cols
+
+    for generic, actual in stat_map.items():
+        profile[generic] = latest.get(actual, np.nan)
+
+    for generic, actual in rank_map.items():
+        profile[generic] = latest.get(actual, np.nan)
+
+    # Also grab Weight class and Gender from the fight context
+    profile["WeightClass"] = latest.get("WeightClass", None)
+    profile["Gender"] = latest.get("Gender", None)
+
+    return profile
+
+
+def build_synthetic_row(
+    red_profile: dict,
+    blue_profile: dict,
+    weight_class: str | None = None,
+    title_bout: bool = False,
+    num_rounds: int = 3,
+) -> pd.DataFrame:
+    """
+    Construct a single-row DataFrame with all differential features
+    from two fighter profiles.
+
+    Produces the no-odds feature schema (no odds, no interaction features).
+    """
+    row = {}
+
+    # ---- Pre-existing Dif columns ----
+    stat_to_generic = {
+        "LoseStreakDif": ("CurrentLoseStreak", "CurrentLoseStreak"),
+        "WinStreakDif": ("CurrentWinStreak", "CurrentWinStreak"),
+        "LongestWinStreakDif": ("LongestWinStreak", "LongestWinStreak"),
+        "WinDif": ("Wins", "Wins"),
+        "LossDif": ("Losses", "Losses"),
+        "TotalRoundDif": ("TotalRoundsFought", "TotalRoundsFought"),
+        "TotalTitleBoutDif": ("TotalTitleBouts", "TotalTitleBouts"),
+        "KODif": ("WinsByKO", "WinsByKO"),
+        "SubDif": ("WinsBySubmission", "WinsBySubmission"),
+        "HeightDif": ("HeightCms", "HeightCms"),
+        "ReachDif": ("ReachCms", "ReachCms"),
+        "AgeDif": ("Age", "Age"),
+        "SigStrDif": ("AvgSigStrLanded", "AvgSigStrLanded"),
+        "AvgSubAttDif": ("AvgSubAtt", "AvgSubAtt"),
+        "AvgTDDif": ("AvgTDLanded", "AvgTDLanded"),
+    }
+
+    for diff_name, (red_key, blue_key) in stat_to_generic.items():
+        red_val = _safe_float(red_profile.get(red_key, 0))
+        blue_val = _safe_float(blue_profile.get(blue_key, 0))
+        row[diff_name] = red_val - blue_val
+
+    # ---- Computed skill diffs ----
+    skill_generic = {
+        "sig_str_pct_diff": ("AvgSigStrPct", "AvgSigStrPct"),
+        "td_pct_diff": ("AvgTDPct", "AvgTDPct"),
+        "dec_maj_wins_diff": ("WinsByDecisionMajority", "WinsByDecisionMajority"),
+        "dec_split_wins_diff": ("WinsByDecisionSplit", "WinsByDecisionSplit"),
+        "dec_unan_wins_diff": ("WinsByDecisionUnanimous", "WinsByDecisionUnanimous"),
+        "tko_doc_wins_diff": ("WinsByTKODoctorStoppage", "WinsByTKODoctorStoppage"),
+        "draws_diff": ("Draws", "Draws"),
+    }
+
+    for diff_name, (red_key, blue_key) in skill_generic.items():
+        red_val = _safe_float(red_profile.get(red_key, 0))
+        blue_val = _safe_float(blue_profile.get(blue_key, 0))
+        row[diff_name] = red_val - blue_val
+
+    # ---- Rank differentials ----
+    rank_generic = {
+        "wc_rank_diff": "MatchWCRank",
+        "pfp_rank_diff": "PFPRank",
+        "hw_rank_diff": "HeavyweightRank",
+        "lhw_rank_diff": "LightHeavyweightRank",
+        "mw_rank_diff": "MiddleweightRank",
+        "ww_rank_diff": "WelterweightRank",
+        "lw_rank_diff": "LightweightRank",
+        "fw_rank_diff": "FeatherweightRank",
+        "bw_rank_diff": "BantamweightRank",
+        "flw_rank_diff": "FlyweightRank",
+        "w_sw_rank_diff": "WStrawweightRank",
+        "w_flw_rank_diff": "WFlyweightRank",
+        "w_bw_rank_diff": "WBantamweightRank",
+        "w_fw_rank_diff": "WFeatherweightRank",
+    }
+
+    lo, hi = RANK_DIFF_CLIP
+    for diff_name, generic_key in rank_generic.items():
+        red_val = red_profile.get(generic_key, np.nan)
+        blue_val = blue_profile.get(generic_key, np.nan)
+        red_filled = UNRANKED_SENTINEL if pd.isna(red_val) else float(red_val)
+        blue_filled = UNRANKED_SENTINEL if pd.isna(blue_val) else float(blue_val)
+        raw_diff = red_filled - blue_filled
+        row[diff_name] = max(lo, min(hi, raw_diff))
+
+    # ---- Contextual numerics ----
+    row["TitleBout"] = int(title_bout)
+    row["NumberOfRounds"] = num_rounds
+    row["EmptyArena"] = 0  # sensible default
+
+    # ---- Stance matchup (one-hot) ----
+    red_stance = red_profile.get("Stance", "Unknown")
+    blue_stance = blue_profile.get("Stance", "Unknown")
+    if pd.isna(red_stance) or red_stance is None:
+        red_stance = "Unknown"
+    if pd.isna(blue_stance) or blue_stance is None:
+        blue_stance = "Unknown"
+    stance_matchup = f"{red_stance}_vs_{blue_stance}"
+
+    # All known stance dummy columns from the training schema
+    all_stance_dummies = [
+        "stance_Open Stance_vs_Orthodox",
+        "stance_Open Stance_vs_Southpaw",
+        "stance_Orthodox_vs_Orthodox",
+        "stance_Orthodox_vs_Southpaw",
+        "stance_Orthodox_vs_Switch",
+        "stance_Orthodox_vs_Unknown",
+        "stance_Southpaw_vs_Open Stance",
+        "stance_Southpaw_vs_Orthodox",
+        "stance_Southpaw_vs_Southpaw",
+        "stance_Southpaw_vs_Switch",
+        "stance_Southpaw_vs_Unknown",
+        "stance_Switch_vs_Orthodox",
+        "stance_Switch_vs_Southpaw",
+        "stance_Switch_vs_Switch",
+        "stance_Switch_vs_Switch ",  # trailing space from training data
+    ]
+
+    for dummy in all_stance_dummies:
+        # dummy format is "stance_{matchup}"
+        dummy_matchup = dummy.replace("stance_", "", 1)
+        row[dummy] = 1 if dummy_matchup == stance_matchup else 0
+
+    # ---- Weight class (one-hot) ----
+    # Determine weight class: user override > auto-detect from fighters
+    if weight_class is None:
+        weight_class = red_profile.get("WeightClass") or blue_profile.get("WeightClass")
+
+    all_wc_dummies = [
+        "wc_Bantamweight",
+        "wc_Catch Weight",
+        "wc_Featherweight",
+        "wc_Flyweight",
+        "wc_Heavyweight",
+        "wc_Light Heavyweight",
+        "wc_Lightweight",
+        "wc_Middleweight",
+        "wc_Welterweight",
+        "wc_Women's Bantamweight",
+        "wc_Women's Featherweight",
+        "wc_Women's Flyweight",
+        "wc_Women's Strawweight",
+    ]
+
+    for dummy in all_wc_dummies:
+        wc_name = dummy.replace("wc_", "", 1)
+        row[dummy] = 1 if weight_class == wc_name else 0
+
+    # ---- Gender ----
+    gender = red_profile.get("Gender") or blue_profile.get("Gender") or "MALE"
+    row["is_male"] = 1 if gender == "MALE" else 0
+
+    return pd.DataFrame([row])
+
+
+def _safe_float(val) -> float:
+    """Convert value to float, treating NaN/None as 0."""
+    if val is None or (isinstance(val, float) and np.isnan(val)):
+        return 0.0
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return 0.0
+
+
+# ============================================================================
+# ARTIFACT LOADING (cached at module level)
+# ============================================================================
+
+_cached_artifacts: dict | None = None
+
+
+def _load_artifacts() -> dict:
+    """
+    Load models, feature data, and schema once per process.
+
+    Returns a dict with keys:
+        model_with_odds, model_cols_with_odds,
+        model_no_odds, model_cols_no_odds,
+        features_df, cleaned_df, schema
+    """
+    global _cached_artifacts
+    if _cached_artifacts is not None:
+        return _cached_artifacts
+
+    # Validate required files
+    for path, label, hint in [
+        (MODEL_WITH_ODDS, "With-odds model", "python src/train_tree_day4a.py"),
+        (MODEL_NO_ODDS, "No-odds model", "python src/train_no_odds.py"),
+        (FEATURES_PATH, "Feature data", "python src/features.py"),
+        (CLEANED_PATH, "Cleaned data", "python src/clean.py"),
+    ]:
+        if not path.exists():
+            raise FileNotFoundError(f"{label} not found: {path} — Run: {hint}")
+
+    bundle_odds = load(MODEL_WITH_ODDS)
+    bundle_no_odds = load(MODEL_NO_ODDS)
+    features_df = pd.read_csv(FEATURES_PATH)
+    cleaned_df = pd.read_csv(CLEANED_PATH)
+
+    _cached_artifacts = {
+        "model_with_odds": bundle_odds["model"],
+        "model_cols_with_odds": bundle_odds["feature_cols"],
+        "model_no_odds": bundle_no_odds["model"],
+        "model_cols_no_odds": bundle_no_odds["feature_cols"],
+        "features_df": features_df,
+        "cleaned_df": cleaned_df,
+    }
+    return _cached_artifacts
+
+
+# ============================================================================
+# PUBLIC API
+# ============================================================================
+
+def get_all_fighter_names() -> list[str]:
+    """Return a sorted list of unique fighter names from the cleaned dataset."""
+    arts = _load_artifacts()
+    df = arts["cleaned_df"]
+    fighters = sorted(
+        set(df["RedFighter"].dropna().unique()) | set(df["BlueFighter"].dropna().unique())
+    )
+    return fighters
+
+
+def predict_matchup(
+    red: str,
+    blue: str,
+    weight_class: str | None = None,
+    title_bout: bool = False,
+    num_rounds: int = 3,
+) -> dict:
+    """
+    Predict the outcome for *red* vs *blue*.
+
+    Mode A: If the exact matchup exists in features_with_odds.csv,
+            uses the historical row with the with-odds model.
+    Mode B: If not, constructs a synthetic matchup from each fighter's
+            latest stats and uses the no-odds model.
+
+    Returns a dict with:
+        red, blue, proba_red, predicted_winner, winner_name,
+        mode ("historical" or "synthetic"), fight_date
+    """
+    arts = _load_artifacts()
+
+    # ---- Try Mode A: Historical lookup ----
+    row = find_fight_row(arts["features_df"], red, blue)
+
+    if row is not None:
+        return _predict_historical(arts, row, red, blue)
+    else:
+        return _predict_synthetic(arts, red, blue, weight_class, title_bout, num_rounds)
+
+
+def _predict_historical(arts: dict, row: pd.Series, red: str, blue: str) -> dict:
+    """Mode A: Predict using a historical fight row with the with-odds model."""
+    model = arts["model_with_odds"]
+    model_cols = arts["model_cols_with_odds"]
+    fight_date = row.get("Date", "unknown")
+
+    row_df = pd.DataFrame([row])
+
+    # Drop non-feature columns
+    drop_cols = [c for c in EXCLUDE_COLS if c in row_df.columns]
+    row_df = row_df.drop(columns=drop_cols, errors="ignore")
+    row_df = row_df.drop(
+        columns=["RedFighter", "BlueFighter", "Date", "Winner"],
+        errors="ignore",
+    )
+
+    # Build interaction features
+    row_df = build_interactions(row_df)
+
+    # Convert booleans to int
+    bool_cols = row_df.select_dtypes(include=["bool"]).columns.tolist()
+    for col in bool_cols:
+        row_df[col] = row_df[col].astype(int)
+
+    row_df = row_df.fillna(0)
+
+    X = enforce_schema_lock(row_df, model_cols)
+
+    # Predict
+    proba = model.predict_proba(X)[0][1]
+    predicted_winner = "Red" if proba >= 0.5 else "Blue"
+    winner_name = red if predicted_winner == "Red" else blue
+
+    return {
+        "red": red,
+        "blue": blue,
+        "proba_red": float(proba),
+        "predicted_winner": predicted_winner,
+        "winner_name": winner_name,
+        "mode": "historical",
+        "fight_date": str(fight_date),
+    }
+
+
+def _predict_synthetic(
+    arts: dict, red: str, blue: str,
+    weight_class: str | None, title_bout: bool, num_rounds: int,
+) -> dict:
+    """Mode B: Predict using a synthetic matchup with the no-odds model."""
+    model = arts["model_no_odds"]
+    model_cols = arts["model_cols_no_odds"]
+    cleaned_df = arts["cleaned_df"]
+
+    # Build fighter profiles from cleaned data
+    red_profile = get_fighter_profile(cleaned_df, red)
+    blue_profile = get_fighter_profile(cleaned_df, blue)
+
+    # Build synthetic feature row
+    row_df = build_synthetic_row(
+        red_profile, blue_profile,
+        weight_class=weight_class,
+        title_bout=title_bout,
+        num_rounds=num_rounds,
+    )
+
+    # Convert booleans to int
+    bool_cols = row_df.select_dtypes(include=["bool"]).columns.tolist()
+    for col in bool_cols:
+        row_df[col] = row_df[col].astype(int)
+
+    row_df = row_df.fillna(0)
+
+    X = enforce_schema_lock(row_df, model_cols)
+
+    # Predict
+    proba = model.predict_proba(X)[0][1]
+    predicted_winner = "Red" if proba >= 0.5 else "Blue"
+    winner_name = red if predicted_winner == "Red" else blue
+
+    return {
+        "red": red,
+        "blue": blue,
+        "proba_red": float(proba),
+        "predicted_winner": predicted_winner,
+        "winner_name": winner_name,
+        "mode": "synthetic",
+        "fight_date": "upcoming",
+        "red_data_from": red_profile["date"],
+        "blue_data_from": blue_profile["date"],
+    }
+
+
+# ============================================================================
+# CLI ENTRYPOINT
 # ============================================================================
 
 def main():
@@ -194,122 +725,56 @@ def main():
     )
     parser.add_argument("--red", required=True, help="Red corner fighter name")
     parser.add_argument("--blue", required=True, help="Blue corner fighter name")
+    parser.add_argument("--weight-class", default=None, help="Weight class override")
+    parser.add_argument("--title-bout", action="store_true", help="Title bout flag")
+    parser.add_argument("--rounds", type=int, default=3, help="Number of rounds (3 or 5)")
     args = parser.parse_args()
 
-    # ---- Load artifacts ----
     print("=" * 50)
     print("UFC Fight Predictor - Inference")
     print("=" * 50)
 
-    if not MODEL_PATH.exists():
-        print(f"[ERROR] Model not found: {MODEL_PATH}")
-        print("        Run: python src/train_tree_day4a.py")
+    try:
+        arts = _load_artifacts()
+    except FileNotFoundError as e:
+        print(f"[ERROR] {e}")
         sys.exit(1)
 
-    if not DATA_PATH.exists():
-        print(f"[ERROR] Feature data not found: {DATA_PATH}")
-        print("        Run: python src/features.py")
-        sys.exit(1)
+    print(f"\n[LOAD] With-odds model: {MODEL_WITH_ODDS.name}")
+    print(f"[LOAD] No-odds model:  {MODEL_NO_ODDS.name}")
+    print(f"[LOAD] Features:       {FEATURES_PATH.name}")
+    print(f"[LOAD] Cleaned data:   {CLEANED_PATH.name}")
 
-    if not SCHEMA_PATH.exists():
-        print(f"[ERROR] Feature schema not found: {SCHEMA_PATH}")
-        print("        Run: python src/features.py")
-        sys.exit(1)
-
-    print(f"\n[LOAD] Model:   {MODEL_PATH.name}")
-    artifacts = load(MODEL_PATH)
-    model = artifacts["model"]
-    model_cols = artifacts["feature_cols"]
-
-    print(f"[LOAD] Data:    {DATA_PATH.name}")
-    df = pd.read_csv(DATA_PATH)
-
-    print(f"[LOAD] Schema:  {SCHEMA_PATH.name}")
-    with open(SCHEMA_PATH) as f:
-        schema = json.load(f)
-    print(f"       Schema features (with_odds): {len(schema['with_odds'])}")
-    print(f"       Model expects: {len(model_cols)} features")
-
-    # Safety: verify fighter columns exist in the dataset
-    for col in ["RedFighter", "BlueFighter"]:
-        if col not in df.columns:
-            print(f"[FATAL] Required column '{col}' not found in {DATA_PATH.name}")
-            sys.exit(1)
-
-    # ---- Find the fight ----
     print(f"\n[FIND] Looking up: {args.red} vs {args.blue}")
-    row = find_fight_row(df, args.red, args.blue)
 
-    fight_date = row.get("Date", "unknown")
-    print(f"       Found fight from: {fight_date}")
-
-    # ---- Build feature row ----
-    row_df = pd.DataFrame([row])
-
-    # Drop non-feature columns
-    drop_cols = [c for c in EXCLUDE_COLS if c in row_df.columns]
-    row_df = row_df.drop(columns=drop_cols, errors="ignore")
-
-    # Drop fighter name / date columns that may remain
-    row_df = row_df.drop(
-        columns=["RedFighter", "BlueFighter", "Date", "Winner"],
-        errors="ignore",
-    )
-
-    # Build interaction features (must match training)
-    row_df = build_interactions(row_df)
-
-    # Convert booleans to int (matches get_X_y in training)
-    bool_cols = row_df.select_dtypes(include=["bool"]).columns.tolist()
-    for col in bool_cols:
-        row_df[col] = row_df[col].astype(int)
-
-    # Fill any remaining NaN with 0
-    row_df = row_df.fillna(0)
-
-    # Schema lock: strict column alignment (fails on mismatch)
-    X = enforce_schema_lock(row_df, model_cols)
-
-    # ---- Safety checks ----
-    if len(X) != 1:
-        print(f"[FATAL] Expected exactly 1 row, got {len(X)}")
+    try:
+        result = predict_matchup(
+            args.red, args.blue,
+            weight_class=args.weight_class,
+            title_bout=args.title_bout,
+            num_rounds=args.rounds,
+        )
+    except ValueError as e:
+        print(f"[ERROR] {e}")
         sys.exit(1)
 
-    nan_count = X.isnull().sum().sum()
-    if nan_count > 0:
-        nan_cols = X.columns[X.isnull().any()].tolist()
-        print(f"[FATAL] {nan_count} NaN values found in feature row:")
-        for col in nan_cols:
-            print(f"   - {col}")
-        sys.exit(1)
+    print(f"       Mode: {result['mode'].upper()}")
+    if result["mode"] == "historical":
+        print(f"       Based on fight from: {result['fight_date']}")
+    else:
+        print(f"       Red data from: {result.get('red_data_from', '?')}")
+        print(f"       Blue data from: {result.get('blue_data_from', '?')}")
 
-    print(f"\n[CHECK] Schema lock:  PASS ({len(model_cols)} features aligned)")
-    print(f"[CHECK] NaN check:    PASS (0 NaN)")
-    print(f"[CHECK] Row count:    PASS (1 row)")
-
-    # ---- Predict ----
-    proba = model.predict_proba(X)[0][1]
-    predicted_winner = "Red" if proba >= 0.5 else "Blue"
-    winner_name = args.red if predicted_winner == "Red" else args.blue
-
-    # ---- Output ----
     print("\n" + "-" * 50)
     print("PREDICTION")
     print("-" * 50)
-    print(f"  Red corner:      {args.red}")
-    print(f"  Blue corner:     {args.blue}")
-    print(f"  P(Red wins):     {proba:.1%}")
-    print(f"  Predicted winner: {winner_name} ({predicted_winner} corner)")
+    print(f"  Red corner:      {result['red']}")
+    print(f"  Blue corner:     {result['blue']}")
+    print(f"  P(Red wins):     {result['proba_red']:.1%}")
+    print(f"  Predicted winner: {result['winner_name']} ({result['predicted_winner']} corner)")
     print("-" * 50)
 
-    return {
-        "red": args.red,
-        "blue": args.blue,
-        "proba_red": float(proba),
-        "predicted_winner": predicted_winner,
-        "winner_name": winner_name,
-        "fight_date": str(fight_date),
-    }
+    return result
 
 
 if __name__ == "__main__":
