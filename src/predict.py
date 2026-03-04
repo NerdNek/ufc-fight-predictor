@@ -400,6 +400,13 @@ def build_synthetic_row(
     row = {}
 
     # ---- Pre-existing Dif columns ----
+    # NOTE: SigStrDif, AvgSubAttDif, AvgTDDif are pre-computed in the raw
+    # dataset (ufc-master.csv) from UNKNOWN source columns that are NOT
+    # present in the CSV.  The training pipeline uses these as-is.
+    # Here we recompute them from the available per-minute rate columns
+    # (AvgSigStrLanded, AvgSubAtt, AvgTDLanded).  This produces values
+    # on a DIFFERENT SCALE than training — the OOD guardrail below
+    # mitigates extreme values until a retrain aligns the scales.
     stat_to_generic = {
         "LoseStreakDif": ("CurrentLoseStreak", "CurrentLoseStreak"),
         "WinStreakDif": ("CurrentWinStreak", "CurrentWinStreak"),
@@ -544,6 +551,45 @@ def _safe_float(val) -> float:
         return float(val)
     except (ValueError, TypeError):
         return 0.0
+
+
+# ============================================================================
+# OOD GUARDRAIL — clip extreme synthetic diffs + warn
+# ============================================================================
+
+# Fixed caps for high-risk diff features.
+# Rate-based diffs (per-minute stats): tight cap.
+# Count-based diffs (career totals): wider cap derived from training p1/p99.
+OOD_CAPS = {
+    "SigStrDif":    (-10, 10),
+    "AvgTDDif":     (-10, 10),
+    "AvgSubAttDif": (-10, 10),
+    "SubDif":       (-10, 10),
+    "KODif":        (-10, 10),
+}
+
+
+def check_ood_features(row_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Clip high-risk diff features to fixed caps and print warnings.
+
+    This prevents extreme synthetic values from producing
+    overconfident predictions.  Rank diffs are excluded (already
+    clipped in build_synthetic_row).
+    """
+    row_df = row_df.copy()
+    for col, (lo, hi) in OOD_CAPS.items():
+        if col not in row_df.columns:
+            continue
+        val = row_df[col].iloc[0]
+        if val < lo or val > hi:
+            clipped = max(lo, min(hi, val))
+            print(
+                f"[OOD WARNING] {col} = {val:.4f} outside [{lo}, {hi}] "
+                f"-> clipped to {clipped:.4f}"
+            )
+            row_df[col] = clipped
+    return row_df
 
 
 # ============================================================================
@@ -721,6 +767,9 @@ def _predict_synthetic(
         row_df[col] = row_df[col].astype(int)
 
     row_df = row_df.fillna(0)
+
+    # OOD guardrail: clip extreme synthetic diffs before prediction
+    row_df = check_ood_features(row_df)
 
     X = enforce_schema_lock(row_df, model_cols)
 
