@@ -1,0 +1,58 @@
+
+============================================================
+Case 1: Max Holloway vs Charles Oliveira (previously suspicious)
+============================================================
+  [Mode A - Historical]
+  P(Red wins) = 0.9277
+  Based on fight: 2015-08-23
+  Diffs: {'Reach': 12.7, 'Age': -2.0, 'Sig. Strikes': -40.5321, 'Takedowns': 1.0705, 'Sub. Attempts': 1.0449, 'Height': -2.54, 'Win Streak': -2.0, 'WC Rank': -2.0, 'P4P Rank': 0.0}
+
+  [Mode B - Synthetic] Max Holloway vs Charles Oliveira
+  Mode: SYNTHETIC (forced)
+  P(Red wins) = 0.9512
+  Predicted winner: Max Holloway
+  Red data from: 2024-10-26
+  Blue data from: 2024-11-16
+
+  Key features (before -> after OOD clamp):
+    SigStrDif                 3.76 ->     3.76  
+    AvgTDDif                 -2.00 ->    -2.00  
+    AvgSubAttDif             -2.40 ->    -2.40  
+    SubDif                  -14.00 ->   -10.00  (CLIPPED)
+    KODif                     7.00 ->     7.00  
+
+
+============================================================
+Case 2: Jon Jones vs Tai Tuivasa (one-sided)
+============================================================
+  [Mode B - Synthetic] Jon Jones vs Tai Tuivasa
+  Mode: SYNTHETIC (forced)
+  P(Red wins) = 0.7485
+  Predicted winner: Jon Jones
+  Red data from: 2024-11-16
+  Blue data from: 2024-08-17
+
+  Key features (before -> after OOD clamp):
+    SigStrDif                 0.61 ->     0.61  
+    AvgTDDif                  1.89 ->     1.89  
+    AvgSubAttDif              0.50 ->     0.50  
+    SubDif                    6.00 ->     6.00  
+    KODif                    -2.00 ->    -2.00  
+
+
+============================================================
+Case 3: Dustin Poirier vs Justin Gaethje (close/toss-up)
+============================================================
+  [Mode B - Synthetic] Dustin Poirier vs Justin Gaethje
+  Mode: SYNTHETIC (forced)
+  P(Red wins) = 0.4610
+  Predicted winner: Justin Gaethje
+  Red data from: 2024-06-01
+  Blue data from: 2024-04-13
+
+  Key features (before -> after OOD clamp):
+    SigStrDif                -1.48 ->    -1.48  
+    AvgTDDif                  1.13 ->     1.13  
+    AvgSubAttDif              1.30 ->     1.30  
+    SubDif                    4.00 ->     4.00  
+    KODif                     6.00 ->     6.00  
