@@ -1,0 +1,126 @@
+============================================================
+DEBUG: Feature comparison -- Max Holloway vs Charles Oliveira
+============================================================
+
+>>> MODE A (Historical) -- uses features_with_odds.csv row
+--------------------------------------------------
+  P(Red wins) = 0.9277
+
+  Key features:
+    SigStrDif                 =   -40.5321
+    ReachDif                  =    12.7000
+    AgeDif                    =    -2.0000
+    AvgTDDif                  =     1.0705
+    AvgSubAttDif              =     1.0449
+    WinDif                    =    -1.0000
+    LossDif                   =    -2.0000
+    KODif                     =    -4.0000
+    SubDif                    =     5.0000
+    odds_diff                 =  -470.0000
+    sig_x_close               =    -0.0000
+    sig_x_underdog            =   -40.5321
+
+  Features with |value| > 5:
+    ReachDif                       =    12.7000
+    SigStrDif                      =   -40.5321
+    dec_odds_diff                  =  -515.0000
+    ev_diff                        =  -175.7843
+    ko_odds_diff                   = -1285.0000
+    odds_diff                      =  -470.0000
+    reach_x_underdog               =    12.7000
+    sig_x_underdog                 =   -40.5321
+    sub_odds_diff                  =   590.0000
+
+
+>>> MODE B (Synthetic) -- built from cleaned_df profiles
+--------------------------------------------------
+  P(Red wins) = 0.9512
+  Red profile date:  2024-10-26
+  Blue profile date: 2024-11-16
+
+  Key features:
+    SigStrDif                 =     3.7600
+    ReachDif                  =   -12.7000
+    AgeDif                    =    -3.0000
+    AvgTDDif                  =    -2.0000
+    AvgSubAttDif              =    -2.4000
+    WinDif                    =     0.0000
+    LossDif                   =    -3.0000
+    KODif                     =     7.0000
+    SubDif                    =   -14.0000
+    odds_diff                 = NOT IN SCHEMA
+    sig_x_close               = NOT IN SCHEMA
+    sig_x_underdog            = NOT IN SCHEMA
+
+  Raw profile values for SigStrDif source:
+    Red  AvgSigStrLanded = 7.16
+    Blue AvgSigStrLanded = 3.4
+    Synthetic SigStrDif  = 3.7600
+
+  Features with |value| > 5:
+    KODif                          =     7.0000
+    ReachDif                       =   -12.7000
+    SubDif                         =   -14.0000
+    TotalRoundDif                  =    35.0000
+    TotalTitleBoutDif              =     6.0000
+    dec_unan_wins_diff             =     6.0000
+    fw_rank_diff                   =   -15.0000
+    pfp_rank_diff                  =   -15.0000
+
+
+>>> MISMATCHED DIFF COLUMNS (training vs synthetic source)
+--------------------------------------------------
+For each pre-existing Dif column, compare its actual value in
+training data vs. the value that build_synthetic_row produces
+using the Red/Blue columns it maps to.
+
+  SigStrDif:
+    Synthetic computes from: RedAvgSigStrLanded - BlueAvgSigStrLanded
+    Max |training - recomputed| = 256.44
+    Mean |training - recomputed| = 20.31
+    Mismatched rows: 6079 / 6528
+
+  AvgSubAttDif:
+    Synthetic computes from: RedAvgSubAtt - BlueAvgSubAtt
+    Max |training - recomputed| = 16.80
+    Mean |training - recomputed| = 1.07
+    Mismatched rows: 4971 / 6528
+
+  AvgTDDif:
+    Synthetic computes from: RedAvgTDLanded - BlueAvgTDLanded
+    Max |training - recomputed| = 22.00
+    Mean |training - recomputed| = 2.33
+    Mismatched rows: 5716 / 6528
+
+
+>>> TRAINING DISTRIBUTION of SigStrDif (from features_with_odds.csv)
+--------------------------------------------------
+  mean     =    -2.6633
+  std      =    19.5835
+  min      =  -118.0000
+  25%      =    -7.8958
+  50%      =    -0.3047
+  75%      =     2.1000
+  max      =   128.2222
+  Mode A val  =   -40.5321  (Z =  -1.93)
+  Mode B val  =     3.7600  (Z =   0.33)
+
+
+>>> ROOT CAUSE CONCLUSION
+--------------------------------------------------
+1. SigStrDif, AvgSubAttDif, and AvgTDDif in the raw dataset are
+   computed from DIFFERENT source columns than the Red/Blue cols
+   that build_synthetic_row maps them to.
+
+2. In Mode B (synthetic), build_synthetic_row line 416 maps:
+     SigStrDif -> AvgSigStrLanded (per-minute rate)
+   But the training data's SigStrDif comes from cumulative totals.
+   This produces a SCALE MISMATCH: synthetic values ~0-10 vs
+   training values spanning -118 to +128.
+
+3. The same pattern applies to AvgSubAttDif and AvgTDDif.
+
+4. For Holloway vs Oliveira specifically, Mode A (historical)
+   is triggered because this fight exists in the dataset.
+   The extreme P(Red)=0.93 is driven by odds_diff=-470 and
+   sig_x_underdog=-40.53 (interaction feature).
