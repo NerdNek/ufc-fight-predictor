@@ -36,6 +36,19 @@ SCHEMA_PATH = PROJECT_ROOT / "data" / "processed" / "feature_schema.json"
 
 # Must match train_tree_day4a.py configuration
 CLOSE_ODDS_THRESHOLD = 0.75
+
+# Key diffs to expose for explainability charts
+EXPLAINABILITY_DIFFS = {
+    "ReachDif": "Reach",
+    "AgeDif": "Age",
+    "SigStrDif": "Sig. Strikes",
+    "AvgTDDif": "Takedowns",
+    "AvgSubAttDif": "Sub. Attempts",
+    "HeightDif": "Height",
+    "WinStreakDif": "Win Streak",
+    "wc_rank_diff": "WC Rank",
+    "pfp_rank_diff": "P4P Rank",
+}
 EXCLUDE_COLS = ["target", "RedFighter", "BlueFighter", "Date", "stance_matchup"]
 
 # Mapping: pre-existing Dif columns → (Red column, Blue column)
@@ -622,6 +635,16 @@ def predict_matchup(
     else:
         return _predict_synthetic(arts, red, blue, weight_class, title_bout, num_rounds)
 
+def _extract_diffs(row_df: pd.DataFrame) -> dict:
+    """Extract key differential values from the feature row for charting."""
+    diffs = {}
+    for col, label in EXPLAINABILITY_DIFFS.items():
+        if col in row_df.columns:
+            val = row_df[col].iloc[0]
+            if pd.notna(val):
+                diffs[label] = float(val)
+    return diffs
+
 
 def _predict_historical(arts: dict, row: pd.Series, red: str, blue: str) -> dict:
     """Mode A: Predict using a historical fight row with the with-odds model."""
@@ -651,6 +674,9 @@ def _predict_historical(arts: dict, row: pd.Series, red: str, blue: str) -> dict
 
     X = enforce_schema_lock(row_df, model_cols)
 
+    # Extract explainability diffs before prediction
+    diffs = _extract_diffs(row_df)
+
     # Predict
     proba = model.predict_proba(X)[0][1]
     predicted_winner = "Red" if proba >= 0.5 else "Blue"
@@ -664,6 +690,7 @@ def _predict_historical(arts: dict, row: pd.Series, red: str, blue: str) -> dict
         "winner_name": winner_name,
         "mode": "historical",
         "fight_date": str(fight_date),
+        "diffs": diffs,
     }
 
 
@@ -697,6 +724,9 @@ def _predict_synthetic(
 
     X = enforce_schema_lock(row_df, model_cols)
 
+    # Extract explainability diffs before prediction
+    diffs = _extract_diffs(row_df)
+
     # Predict
     proba = model.predict_proba(X)[0][1]
     predicted_winner = "Red" if proba >= 0.5 else "Blue"
@@ -712,6 +742,7 @@ def _predict_synthetic(
         "fight_date": "upcoming",
         "red_data_from": red_profile["date"],
         "blue_data_from": blue_profile["date"],
+        "diffs": diffs,
     }
 
 
