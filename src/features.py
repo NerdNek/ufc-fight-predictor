@@ -83,6 +83,20 @@ EXISTING_DIFF_COLS = [
     'SigStrDif', 'AvgSubAttDif', 'AvgTDDif'
 ]
 
+# V2: Rate-based replacements for 3 black-box pre-existing diffs.
+# These are recomputed from the per-minute rate columns instead of
+# the unknown-source pre-existing columns in the raw dataset.
+RATE_BASED_DIFFS = {
+    'SigStrDif':    ('RedAvgSigStrLanded', 'BlueAvgSigStrLanded'),
+    'AvgSubAttDif': ('RedAvgSubAtt', 'BlueAvgSubAtt'),
+    'AvgTDDif':     ('RedAvgTDLanded', 'BlueAvgTDLanded'),
+}
+
+# V2: Existing diffs minus the 3 black-box columns (they get recomputed)
+EXISTING_DIFF_COLS_V2 = [
+    c for c in EXISTING_DIFF_COLS if c not in RATE_BASED_DIFFS
+]
+
 # Contextual numeric features to keep
 CONTEXTUAL_NUMERIC = ['TitleBout', 'NumberOfRounds', 'EmptyArena']
 
@@ -399,11 +413,67 @@ def main():
     sample_cols = [c for c in sample_cols if c in out_with.columns]
     print(out_with[sample_cols].head(3).to_string())
 
+    # ================================================================
+    # V2: Recompute SigStrDif, AvgSubAttDif, AvgTDDif from rate columns
+    # ================================================================
+    print("\n" + "=" * 60)
+    print("[V2] Building rate-based diff features...")
+
+    df_v2 = df.copy()
+
+    for diff_name, (red_col, blue_col) in RATE_BASED_DIFFS.items():
+        if red_col in df_v2.columns and blue_col in df_v2.columns:
+            old_vals = df_v2[diff_name].copy()
+            df_v2[diff_name] = (df_v2[red_col] - df_v2[blue_col]).fillna(0)
+            delta = (old_vals.fillna(0) - df_v2[diff_name]).abs()
+            print(f"   + {diff_name}: recomputed from {red_col} - {blue_col}")
+            print(f"     mean delta from v1: {delta.mean():.2f}, max: {delta.max():.2f}")
+        else:
+            print(f"   ! {diff_name}: source columns not found, kept as-is")
+
+    # V2 feature selection (identical logic, just uses recomputed values)
+    X_with_v2 = select_features(df_v2, include_odds=True)
+    X_no_v2 = select_features(df_v2, include_odds=False)
+
+    # V2 sanity check
+    for label, X in [("v2_with_odds", X_with_v2), ("v2_no_odds", X_no_v2)]:
+        nan_count = X.isnull().sum().sum()
+        print(f"   [{label}] NaN count: {nan_count}")
+
+    # Save V2 schema
+    schema['with_odds_v2'] = list(X_with_v2.columns)
+    schema['no_odds_v2'] = list(X_no_v2.columns)
+    with open(schema_path, 'w') as f:
+        json.dump(schema, f, indent=2)
+    print(f"   [SCHEMA] Updated {schema_path.name} with v2 keys")
+
+    # Save V2 with-odds
+    output_with_odds_v2 = output_dir / 'features_with_odds_v2.csv'
+    out_with_v2 = X_with_v2.copy()
+    out_with_v2['target'] = y
+    out_with_v2['RedFighter'] = df['RedFighter']
+    out_with_v2['BlueFighter'] = df['BlueFighter']
+    out_with_v2['Date'] = df['Date']
+    out_with_v2.to_csv(output_with_odds_v2, index=False)
+    print(f"   [SAVE] {output_with_odds_v2.name}: {out_with_v2.shape}")
+
+    # Save V2 no-odds
+    output_no_odds_v2 = output_dir / 'features_no_odds_v2.csv'
+    out_no_v2 = X_no_v2.copy()
+    out_no_v2['target'] = y
+    out_no_v2['RedFighter'] = df['RedFighter']
+    out_no_v2['BlueFighter'] = df['BlueFighter']
+    out_no_v2['Date'] = df['Date']
+    out_no_v2.to_csv(output_no_odds_v2, index=False)
+    print(f"   [SAVE] {output_no_odds_v2.name}: {out_no_v2.shape}")
+
     print("\n" + "=" * 60)
     print("[DONE] Feature engineering complete!")
-    print(f"   With-odds features: {len(X_with.columns)}")
-    print(f"   No-odds features:   {len(X_no.columns)}")
-    print(f"   Schema saved:        {schema_path.name}")
+    print(f"   V1 with-odds: {len(X_with.columns)} features")
+    print(f"   V1 no-odds:   {len(X_no.columns)} features")
+    print(f"   V2 with-odds: {len(X_with_v2.columns)} features")
+    print(f"   V2 no-odds:   {len(X_no_v2.columns)} features")
+    print(f"   Schema saved:  {schema_path.name}")
     print(f"   Ready for modeling.")
     print("=" * 60)
 
