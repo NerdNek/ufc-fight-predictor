@@ -159,12 +159,36 @@ with st.expander("Fight Context (optional)"):
     with ctx_col2:
         num_rounds = st.selectbox("Rounds", options=[3, 5], index=0)
 
+# ---- Cross-division guardrail (rendered before button so state persists) ----
+cross_division = False
+cross_div_override = False
+
+if red_fighter and blue_fighter and red_fighter != blue_fighter:
+    red_wc_row = fighter_index[fighter_index["Fighter"] == red_fighter]
+    blue_wc_row = fighter_index[fighter_index["Fighter"] == blue_fighter]
+    red_wc = red_wc_row["WeightClass"].iloc[0] if not red_wc_row.empty else None
+    blue_wc = blue_wc_row["WeightClass"].iloc[0] if not blue_wc_row.empty else None
+
+    if red_wc and blue_wc and red_wc != blue_wc:
+        cross_division = True
+        st.warning(
+            f"⚠️ **Cross-division matchup detected**: "
+            f"{red_fighter} ({red_wc}) vs {blue_fighter} ({blue_wc}). "
+            f"The model was not trained on cross-weight-class fights — "
+            f"predictions may be unrealistic."
+        )
+        cross_div_override = st.checkbox(
+            "Allow cross-division prediction (for fun)", value=False
+        )
+
 # ---- Predict button ----
 if st.button("Predict", type="primary", use_container_width=True):
     if not red_fighter or not blue_fighter:
         st.warning("Please select both fighters.")
     elif red_fighter == blue_fighter:
         st.warning("Please select two different fighters.")
+    elif cross_division and not cross_div_override:
+        st.info("Enable the cross-division checkbox above to run this prediction.")
     else:
         # Use selected weight class if specific, otherwise auto-detect
         wc_override = None if weight_class == "All Divisions" else weight_class
@@ -180,6 +204,13 @@ if st.button("Predict", type="primary", use_container_width=True):
             except (SystemExit, FileNotFoundError, ValueError) as e:
                 st.error(f"Prediction failed: {e}")
                 st.stop()
+
+        # Show persistent warning if cross-division override was used on synthetic
+        if cross_division and "synthetic" in result.get("mode", ""):
+            st.warning(
+                "🚧 **Cross-division matchup**: model not trained on these scenarios; "
+                "results may be unrealistic."
+            )
 
         prob_red = result["proba_red"]
         prob_blue = 1.0 - prob_red
