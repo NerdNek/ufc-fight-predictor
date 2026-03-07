@@ -1,26 +1,37 @@
-# FightSense AI - UFC Fight Outcome Predictor
+# 🥊 FightSense AI — UFC Fight Outcome Predictor
 
-A machine learning project that predicts UFC fight outcomes using pre-fight statistics, historical data, and betting odds. Supports both historical backtesting and hypothetical/upcoming matchup prediction.
+A machine learning system that predicts UFC fight outcomes using pre-fight statistics, historical data, and betting odds. Supports both **historical backtesting** and **hypothetical/upcoming matchup prediction** via a dual-mode inference engine.
 
-## Project Structure
+> **6,528 fights** · **74+ differential features** · **Time-based evaluation** · **Streamlit Web UI**
 
+---
+
+## Architecture Overview
+
+```mermaid
+flowchart LR
+    subgraph Data Pipeline
+        A[ufc-master.csv] -->|clean.py| B[ufc_cleaned.csv]
+        B -->|features.py| C[features v1 + v2]
+    end
+
+    subgraph Training
+        C -->|train_tree_day4a.py| D["HGB with-odds (v1)"]
+        C -->|train_no_odds.py| E["HGB no-odds (v2)"]
+        C -->|train_baseline.py| F[LogReg baseline]
+    end
+
+    subgraph Inference
+        D --> G[predict.py]
+        E --> G
+        G -->|Mode A: historical| H[With-odds model]
+        G -->|Mode B: synthetic| I[No-odds v2 model]
+    end
+
+    G --> J[Streamlit UI]
 ```
-ufc-fight-predictor/
-├── data/
-│   ├── raw/               # Original datasets (not tracked in git)
-│   └── processed/         # Cleaned, leakage-safe datasets
-├── models/                # Trained model artifacts
-├── notebooks/             # Jupyter notebooks for EDA and experiments
-├── reports/               # Generated analysis and metrics
-├── src/
-│   ├── clean.py           # Data cleaning (leakage removal)
-│   ├── features.py        # Feature engineering (differentials)
-│   ├── predict.py         # Dual-mode inference engine
-│   ├── train_baseline.py  # Baseline model training
-│   ├── train_no_odds.py   # No-odds HGB model training
-│   └── train_tree_day4a.py # Tree model with interaction features
-└── streamlit_app.py       # Web UI for predictions
-```
+
+---
 
 ## Quick Start
 
@@ -30,98 +41,191 @@ git clone https://github.com/NerdNek/ufc-fight-predictor.git
 cd ufc-fight-predictor
 pip install -r requirements.txt
 
-# 2. Add data
-# Place ufc-master.csv in data/raw/
+# 2. Place ufc-master.csv in data/raw/
 
-# 3. Run pipeline
-python src/clean.py             # Remove leakage columns
-python src/features.py          # Generate differential features
-python src/train_tree_day4a.py  # Train with-odds HGB model
-python src/train_no_odds.py     # Train no-odds HGB model
+# 3. Run the full pipeline
+python src/clean.py                # Remove leakage columns
+python src/features.py             # Generate v1 + v2 differential features
+python src/train_tree_day4a.py     # Train with-odds HGB model
+python src/train_no_odds.py --input data/processed/features_no_odds_v2.csv --out-suffix _v2
 
-# 4. Run the web UI
+# 4. Launch the web UI
 streamlit run streamlit_app.py
 
 # Or predict from the command line
-python src/predict.py --red "Israel Adesanya" --blue "Sean Strickland"
+python src/predict.py --red "Islam Makhachev" --blue "Jon Jones"
 ```
+
+---
 
 ## Prediction Modes
 
-The predictor operates in two modes, selected automatically based on whether the fighter pair exists in the dataset.
+The predictor automatically selects a mode based on whether the fighter pair exists in the historical dataset.
 
-### Mode A: Historical (with-odds model)
+```mermaid
+flowchart TD
+    Q["predict_matchup(Red, Blue)"] --> F{Matchup exists in\nfeatures_with_odds.csv?}
+    F -- Yes --> A["**Mode A: Historical (v1)**\nUse real fight row + odds\nhgb_day4a.joblib"]
+    F -- No --> B["**Mode B: Synthetic (v2)**\nBuild row from latest stats\nhgb_no_odds_v2.joblib"]
+    A --> R[Return P Red wins]
+    B --> R
+```
 
-When the exact matchup exists in `features_with_odds.csv`, the system uses the real fight-level row with actual betting odds. This gives the highest-fidelity backtest since the model was trained with odds features and odds-gated interaction features.
+### Mode A — Historical (with-odds, v1)
 
-- Uses `hgb_day4a.joblib` (86 features, ROC-AUC 0.692)
-- Includes odds-based interaction features (close-odds gates, favorite/underdog gates)
-- Best for validating model performance on known fights
+Uses the real fight-level row with actual betting odds for maximum backtesting fidelity.
 
-### Mode B: Synthetic (no-odds model)
+- **Model**: `hgb_day4a.joblib` — 86 features, ROC-AUC **0.692**
+- **Includes**: odds-gated interaction features (close-odds gates, favorite/underdog gates)
+- **Best for**: validating model performance on known fights
 
-When the matchup does not exist, the system constructs a synthetic feature row from each fighter's most recent individual stats. Because betting lines are unavailable for hypothetical fights, this mode uses a dedicated no-odds model.
+### Mode B — Synthetic (no-odds, v2)
 
-- Uses `hgb_no_odds.joblib` (68 features, ROC-AUC 0.600)
-- Builds differential features on-the-fly from per-fighter career stats
-- Supports optional fight context: weight class, title bout, number of rounds
-- Best for upcoming or hypothetical matchups
+Constructs a synthetic feature row from each fighter's most recent career stats. Uses the **v2 model** trained on rate-based differential features that match the synthetic builder's scale.
+
+- **Model**: `hgb_no_odds_v2.joblib` — 68 features, ROC-AUC **0.605**
+- **Includes**: OOD guardrail that clips extreme diff values before prediction
+- **Best for**: upcoming or hypothetical matchups (no betting lines needed)
+- **Supports**: optional weight class, title bout, and round count context
+
+---
 
 ## Model Performance
 
 ### Evaluation Methodology
-- **Split**: Time-based (no shuffle) - train on past, test on future
-- **Train**: 5,222 fights (2010-03-21 to 2022-05-21)
-- **Test**: 1,306 fights (2022-05-21 to 2024-12-07)
+
+| Detail | Value |
+| --- | --- |
+| **Split** | Time-based (no shuffle) — train on past, test on future |
+| **Train** | 5,222 fights (2010-03-21 → 2022-05-21) |
+| **Test** | 1,306 fights (2022-05-21 → 2024-12-07) |
 
 ### Results
 
-| Model | Accuracy | ROC-AUC | Log Loss |
-|-------|----------|---------|----------|
-| Majority Class (always Red) | 56.28% | - | - |
-| **Odds Only (LogReg)** | **66.85%** | **0.723** | - |
-| Logistic Regression (77 features) | 62.94% | 0.699 | - |
-| LogReg v2 (rate-based diffs, 73 features) | 63.55% | 0.699 | - |
-| HGB Odds-Only | 63.25% | 0.678 | 0.64 |
-| HGB Skill-Only | 59.19% | 0.598 | 0.68 |
-| HGB Full (86 features, with odds) | 63.17% | 0.692 | 0.64 |
-| HGB No-Odds (68 features) | 58.42% | 0.600 | 0.69 |
+| Model | Accuracy | ROC-AUC | Log Loss | Notes |
+| --- | --- | --- | --- | --- |
+| Majority Class (always Red) | 56.28% | — | — | Baseline |
+| **Odds Only (LogReg)** | **66.85%** | **0.723** | — | Market efficiency ceiling |
+| LogReg v1 (77 features) | 62.94% | 0.699 | — | |
+| LogReg v2 (73 features) | 63.55% | 0.699 | — | Rate-based diffs |
+| HGB Odds-Only | 63.25% | 0.678 | 0.64 | |
+| HGB Skill-Only v1 | 59.19% | 0.598 | 0.68 | |
+| HGB Skill-Only v2 | 59.72% | 0.604 | — | ↑ +0.006 AUC |
+| HGB Full v1 (86 features) | 63.17% | 0.692 | 0.64 | Mode A model |
+| HGB No-Odds v1 (68 features) | 58.42% | 0.600 | 0.69 | |
+| **HGB No-Odds v2 (68 features)** | **59.11%** | **0.605** | 0.69 | **Mode B model** ↑ +0.005 AUC |
 
 ### Key Findings
 
-- **Odds-only remains strongest overall** (AUC 0.723), consistent with market efficiency
-- **Ablation study confirms**: odds features alone carry most predictive signal (AUC 0.678); skills add +0.014 incremental AUC
-- **Segment analysis**: Model shows +8.3% lift over majority baseline in confident-market fights
-- **No-odds model**: Lower accuracy as expected, but enables prediction for any fighter pairing without requiring betting lines
+- **Odds-only LogReg** remains the strongest single-signal model (AUC 0.723), consistent with market efficiency
+- **v2 rate-based diffs** improved the no-odds model by +0.005 AUC and +0.69pp accuracy — the scale now matches the synthetic builder
+- **Ablation study**: odds features alone carry most predictive signal; skills add +0.014 incremental AUC
+- **Segment analysis**: model shows +8.3% lift over majority baseline in confident-market fights
+
+---
 
 ## Data Pipeline
 
-### 1. Leakage Prevention (clean.py)
-Removes post-fight columns: `Finish`, `FinishRound`, `TotalFightTimeSecs`, etc.
+```mermaid
+flowchart TD
+    subgraph "1 · Leakage Prevention"
+        R[ufc-master.csv\n6,528 fights × 113 cols] -->|clean.py| C[ufc_cleaned.csv\nDrops Finish, FinishRound,\nTotalFightTimeSecs, etc.]
+    end
 
-### 2. Feature Engineering (features.py)
-- 77 differential features (Red - Blue)
-- Removes fighter identity, forces matchup reasoning
-- Encodes stance matchups, weight classes, rankings
-- Produces with-odds and no-odds feature variants
+    subgraph "2 · Feature Engineering"
+        C -->|features.py| F1["features v1\n77 features (with odds)\n69 features (no odds)"]
+        C -->|features.py| F2["features v2\nRecomputes SigStrDif,\nAvgSubAttDif, AvgTDDif\nfrom rate columns"]
+    end
 
-### 3. Model Training
-- **train_tree_day4a.py**: With-odds HGB model with interaction features, segment evaluation, ablation study
-- **train_no_odds.py**: No-odds HGB model for synthetic matchup prediction
-- **train_baseline.py**: Logistic regression baseline
+    subgraph "3 · Training"
+        F1 --> M1[hgb_day4a.joblib\n86 features + interactions]
+        F2 --> M2[hgb_no_odds_v2.joblib\n68 features]
+        F1 --> M3[logreg_baseline.joblib]
+    end
+```
 
-### 4. Inference (predict.py)
-- Dual-mode: historical lookup (Mode A) or synthetic construction (Mode B)
-- Fighter profile extraction from most recent appearance in dataset
-- Schema lock enforcement to prevent feature drift
+### Feature Categories (74 total, with-odds variant)
+
+| Category | Count | Examples |
+| --- | --- | --- |
+| Pre-existing diffs | 15 | `HeightDif`, `ReachDif`, `AgeDif`, `WinDif`, `KODif` |
+| Computed skill diffs | 7 | `sig_str_pct_diff`, `td_pct_diff`, `draws_diff` |
+| Odds diffs | 5 | `odds_diff`, `ev_diff`, `dec_odds_diff` |
+| Rank diffs | 14 | `wc_rank_diff`, `pfp_rank_diff`, `hw_rank_diff` |
+| Stance matchup dummies | 16 | `stance_Orthodox_vs_Southpaw` |
+| Weight class dummies | 14 | `wc_Lightweight`, `wc_Heavyweight` |
+| Contextual | 3 | `TitleBout`, `NumberOfRounds`, `EmptyArena` |
+
+### v1 vs v2 Feature Difference
+
+Three differential columns (`SigStrDif`, `AvgSubAttDif`, `AvgTDDif`) were pre-computed in the raw dataset from an **unknown source**. The v2 pipeline recomputes them from the available per-minute rate columns, aligning with what the synthetic builder produces. All other features are identical.
+
+| Column | v1 Source | v2 Source |
+| --- | --- | --- |
+| `SigStrDif` | Black-box pre-computed | `RedAvgSigStrLanded − BlueAvgSigStrLanded` |
+| `AvgSubAttDif` | Black-box pre-computed | `RedAvgSubAtt − BlueAvgSubAtt` |
+| `AvgTDDif` | Black-box pre-computed | `RedAvgTDLanded − BlueAvgTDLanded` |
+
+---
+
+## Project Structure
+
+```text
+ufc-fight-predictor/
+├── data/
+│   ├── raw/                        # ufc-master.csv (not tracked)
+│   └── processed/                  # Cleaned + engineered features
+│       ├── ufc_cleaned.csv
+│       ├── features_with_odds.csv      # v1 with odds
+│       ├── features_no_odds.csv        # v1 no odds
+│       ├── features_with_odds_v2.csv   # v2 (rate-based diffs)
+│       ├── features_no_odds_v2.csv     # v2 no odds
+│       └── feature_schema.json         # Column lists for v1 + v2
+├── models/
+│   ├── hgb_day4a.joblib            # Mode A: with-odds HGB
+│   ├── hgb_no_odds_v2.joblib       # Mode B: no-odds HGB (v2)
+│   └── logreg_baseline.joblib      # LogReg baseline
+├── reports/                        # Metrics, diagnostics, sanity checks
+├── notebooks/                      # EDA and experiments
+├── src/
+│   ├── clean.py                    # Leakage-safe data cleaning
+│   ├── features.py                 # Differential feature engineering
+│   ├── predict.py                  # Dual-mode inference engine
+│   ├── train_baseline.py           # LogReg baseline (--input, --out-suffix)
+│   ├── train_tree_day4a.py         # HGB with interactions (--input, --out-suffix)
+│   └── train_no_odds.py            # HGB no-odds (--input, --out-suffix)
+└── streamlit_app.py                # Web UI
+```
+
+---
 
 ## Streamlit Web UI
 
 The web interface provides:
-- Fighter selection from all fighters in the dataset
-- Optional fight context controls (weight class, title bout, number of rounds)
-- Automatic mode selection with clear labeling
-- Probability display for both corners
+
+- **Fighter selection** from all fighters in the dataset
+- **Optional fight context** — weight class, title bout, number of rounds
+- **Automatic mode selection** with clear `Historical(v1)` / `Synthetic(v2)` labeling
+- **Win probability display** for both corners
+- **Matchup advantages chart** showing key differential features
+
+---
+
+## CLI Usage
+
+All training scripts support `--input` and `--out-suffix` flags for retraining on new feature versions:
+
+```bash
+# Retrain on v2 features
+python src/train_baseline.py   --input data/processed/features_with_odds_v2.csv --out-suffix _v2
+python src/train_tree_day4a.py --input data/processed/features_with_odds_v2.csv --out-suffix _v2
+python src/train_no_odds.py    --input data/processed/features_no_odds_v2.csv   --out-suffix _v2
+
+# Predict a matchup
+python src/predict.py --red "Max Holloway" --blue "Alexander Volkanovski"
+```
+
+---
 
 ## License
 
