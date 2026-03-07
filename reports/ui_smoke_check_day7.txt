@@ -1,0 +1,58 @@
+UI Smoke Check Report — Day 7
+================================
+Date: 2026-03-06
+Model versions: hgb_day4a.joblib (Mode A), hgb_no_odds_v2.joblib (Mode B)
+
+CASE 1 (Historical) — Max Holloway vs Charles Oliveira
+-------------------------------------------------------
+- Red: Max Holloway
+- Blue: Charles Oliveira
+- Mode: Historical (with odds) · Model: hgb_day4a_v1_with_odds
+- Fight date: 2015-08-23
+- P(Red wins): 93%
+
+Standardized chart values:
+  Reach:          +1.38σ
+  Age:            -0.44σ
+  Sig. Strikes:   -1.70σ  (previously raw -40.5; now readable)
+  Takedowns:      +0.75σ
+  Sub. Attempts:  +1.31σ
+  Height:         -0.37σ
+  Win Streak:     -1.04σ
+  WC Rank:        -0.02σ
+
+✅ All bars within [-3, 3]. Chart is readable. No extreme raw-scale dominance.
+✅ Mode badge and model variant displayed correctly.
+✅ "Show raw diff values" toggle present and functional.
+✅ Footer shows "Based on fight data from 2015-08-23".
+
+CASE 2 (Synthetic) — Jon Jones vs Ilia Topuria
+-----------------------------------------------
+- Red: Jon Jones
+- Blue: Ilia Topuria
+- Mode: Synthetic (no odds) · Model: hgb_no_odds_v2
+- Red stats from: 2024-11-16 · Blue stats from: 2024-10-26
+- P(Red wins): 50% (Topuria predicted winner by slim margin)
+
+Standardized chart values:
+  Reach:          +3.00σ  (clipped)
+  Age:            +1.88σ
+  Sig. Strikes:   -0.04σ
+  Takedowns:      -0.14σ
+  Sub. Attempts:  -0.78σ
+  Height:         +3.00σ  (clipped)
+  Win Streak:     +3.00σ  (clipped)
+  P4P Rank:       -0.22σ
+
+✅ All bars within [-3, 3]. Clipping works correctly for extreme diffs.
+✅ Mode badge and model variant displayed correctly.
+✅ Footer shows fighter snapshot dates.
+
+⚠️  NOTE: 50/50 prediction for Jones vs Topuria is suspect — Jones would
+be a massive favorite in reality. This is a known limitation of the no-odds
+model (AUC 0.605) on cross-weight-class matchups: without betting odds to
+encode the mismatch, the model relies only on career stats. Topuria's
+per-minute striking rate and recent form offset Jones's physical advantages
+in the model's view, which is unrealistic for a HW-vs-FW hypothetical.
+This is NOT a UI bug — it's a model limitation for extreme cross-division
+matchups (the model was never trained on such fights).
