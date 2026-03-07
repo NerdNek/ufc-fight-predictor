@@ -11,8 +11,11 @@ Improvements over Day 3:
 
 Usage:
     python src/train_tree_day4a.py
+    python src/train_tree_day4a.py --input data/processed/features_with_odds_v2.csv --out-suffix _v2
 """
 
+
+import argparse
 import json
 from pathlib import Path
 from datetime import datetime
@@ -548,18 +551,37 @@ def ablation_study(
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Train HGB day4a model.")
+    parser.add_argument(
+        "--input", default=None,
+        help="Path to features CSV (default: data/processed/features_with_odds.csv)"
+    )
+    parser.add_argument(
+        "--out-suffix", default="",
+        help="Suffix for output filenames, e.g. _v2"
+    )
+    args = parser.parse_args()
+
+    # Resolve paths with optional suffix
+    sfx = args.out_suffix
+    data_path = Path(args.input) if args.input else DATA_PATH
+    model_path = Path(f"models/hgb_day4a{sfx}.joblib")
+    report_path = Path(f"reports/day4a_metrics{sfx}.json")
+    segment_path = Path(f"reports/day4a_segment_metrics{sfx}.json")
+    sweep_path = Path(f"reports/day5_close_threshold_sweep{sfx}.json")
+
     print("=" * 60)
     print("UFC Fight Predictor - Day 4A: Tree Model with Interactions")
     print("=" * 60)
 
     # Ensure output directories exist
-    REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    model_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Load data
-    print(f"\n[LOAD] Loading data from: {DATA_PATH}")
-    df = pd.read_csv(DATA_PATH)
-    print(f"   Shape: {df.shape[0]:,} rows × {df.shape[1]} columns")
+    print(f"\n[LOAD] Loading data from: {data_path}")
+    df = pd.read_csv(data_path)
+    print(f"   Shape: {df.shape[0]:,} rows x {df.shape[1]} columns")
 
     # Time-based split (before adding interactions to avoid leakage)
     train_df, test_df = time_split(df, date_col="Date", train_frac=TRAIN_RATIO)
@@ -634,8 +656,8 @@ def main():
     ablation = ablation_study(train_df, test_df, odds_features, skill_features)
 
     # Save model
-    print(f"\n[SAVE] Saving model to: {MODEL_PATH}")
-    dump({"model": model, "feature_cols": feature_cols}, MODEL_PATH)
+    print(f"\n[SAVE] Saving model to: {model_path}")
+    dump({"model": model, "feature_cols": feature_cols}, model_path)
 
     # Save metrics
     payload = {
@@ -654,19 +676,19 @@ def main():
         },
     }
 
-    print(f"[SAVE] Saving metrics to: {REPORT_PATH}")
-    REPORT_PATH.write_text(json.dumps(payload, indent=2))
+    print(f"[SAVE] Saving metrics to: {report_path}")
+    report_path.write_text(json.dumps(payload, indent=2))
 
-    print(f"[SAVE] Saving segment metrics to: {SEGMENT_PATH}")
-    SEGMENT_PATH.write_text(json.dumps(seg, indent=2))
+    print(f"[SAVE] Saving segment metrics to: {segment_path}")
+    segment_path.write_text(json.dumps(seg, indent=2))
 
     # Quantile close-odds sweep
     sweep = quantile_close_odds_sweep(
         test_df, y_test, proba, odds_col="odds_diff"
     )
     if sweep is not None:
-        print(f"[SAVE] Saving sweep report to: {SWEEP_PATH}")
-        SWEEP_PATH.write_text(json.dumps(sweep, indent=2))
+        print(f"[SAVE] Saving sweep report to: {sweep_path}")
+        sweep_path.write_text(json.dumps(sweep, indent=2))
 
     # Summary
     print("\n" + "=" * 60)

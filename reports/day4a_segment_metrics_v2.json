@@ -1,0 +1,34 @@
+{
+  "close_odds": {
+    "n": 234,
+    "red_win_rate": 0.5512820512820513,
+    "model_accuracy": 0.5897435897435898,
+    "majority_baseline": 0.5512820512820513,
+    "lift_vs_baseline": 0.038461538461538436,
+    "roc_auc": 0.5660391288298265
+  },
+  "not_close_odds": {
+    "n": 1072,
+    "red_win_rate": 0.5652985074626866,
+    "model_accuracy": 0.644589552238806,
+    "majority_baseline": 0.5652985074626866,
+    "lift_vs_baseline": 0.07929104477611937,
+    "roc_auc": 0.7027082536579838
+  },
+  "red_favorites": {
+    "n": 429,
+    "red_win_rate": 0.3333333333333333,
+    "model_accuracy": 0.5571095571095571,
+    "majority_baseline": 0.6666666666666667,
+    "lift_vs_baseline": -0.10955710955710962,
+    "roc_auc": 0.5185094625654068
+  },
+  "red_underdogs": {
+    "n": 643,
+    "red_win_rate": 0.7200622083981337,
+    "model_accuracy": 0.702954898911353,
+    "majority_baseline": 0.7200622083981337,
+    "lift_vs_baseline": -0.017107309486780742,
+    "roc_auc": 0.6478281737461002
+  }
+}

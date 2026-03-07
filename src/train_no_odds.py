@@ -7,8 +7,11 @@ are unavailable.
 
 Usage:
     python src/train_no_odds.py
+    python src/train_no_odds.py --input data/processed/features_no_odds_v2.csv --out-suffix _v2
 """
 
+
+import argparse
 import json
 from pathlib import Path
 from datetime import datetime
@@ -42,17 +45,33 @@ TRAIN_RATIO = 0.80
 # ============================================================================
 
 def main():
+    parser = argparse.ArgumentParser(description="Train HGB no-odds model.")
+    parser.add_argument(
+        "--input", default=None,
+        help="Path to features CSV (default: data/processed/features_no_odds.csv)"
+    )
+    parser.add_argument(
+        "--out-suffix", default="",
+        help="Suffix for output filenames, e.g. _v2"
+    )
+    args = parser.parse_args()
+
+    sfx = args.out_suffix
+    data_path = Path(args.input) if args.input else DATA_PATH
+    model_path = Path(f"models/hgb_no_odds{sfx}.joblib")
+    report_path = Path(f"reports/hgb_no_odds_metrics{sfx}.json")
+
     print("=" * 60)
     print("UFC Fight Predictor - HGB No-Odds Model")
     print("=" * 60)
 
-    MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
-    REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Load data
-    print(f"\n[LOAD] Loading data from: {DATA_PATH}")
-    df = pd.read_csv(DATA_PATH)
-    print(f"   Shape: {df.shape[0]:,} rows × {df.shape[1]} columns")
+    print(f"\n[LOAD] Loading data from: {data_path}")
+    df = pd.read_csv(data_path)
+    print(f"   Shape: {df.shape[0]:,} rows x {df.shape[1]} columns")
 
     # Time-based split
     df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
@@ -117,8 +136,8 @@ def main():
     print(f"   Brier Score: {metrics['brier_score']:.4f}")
 
     # Save model
-    print(f"\n[SAVE] Saving model to: {MODEL_PATH}")
-    dump({"model": model, "feature_cols": feature_cols}, MODEL_PATH)
+    print(f"\n[SAVE] Saving model to: {model_path}")
+    dump({"model": model, "feature_cols": feature_cols}, model_path)
 
     # Save metrics
     payload = {
@@ -130,11 +149,11 @@ def main():
         "feature_cols": feature_cols,
         "metrics": metrics,
     }
-    print(f"[SAVE] Saving metrics to: {REPORT_PATH}")
-    REPORT_PATH.write_text(json.dumps(payload, indent=2))
+    print(f"[SAVE] Saving metrics to: {report_path}")
+    report_path.write_text(json.dumps(payload, indent=2))
 
     print(f"\n[DONE] No-odds HGB model trained with {len(feature_cols)} features")
-    print(f"   Model: {MODEL_PATH}")
+    print(f"   Model: {model_path}")
     return metrics
 
 

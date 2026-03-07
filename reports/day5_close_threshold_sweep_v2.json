@@ -1,0 +1,44 @@
+{
+  "input_file": "data\\processed\\features_with_odds.csv",
+  "date_split": {
+    "train_frac": 0.8
+  },
+  "odds_abs_percentiles": {
+    "p10": 0.0,
+    "p20": 14.0,
+    "p30": 252.0,
+    "p50": 347.5,
+    "p80": 575.0,
+    "p90": 802.5,
+    "p95": 1045.0
+  },
+  "sweep": [
+    {
+      "q": 0.1,
+      "threshold": 0.0,
+      "n": 234,
+      "red_win_rate": 0.5512820512820513,
+      "baseline_acc": 0.5512820512820513,
+      "model_acc": 0.5897435897435898,
+      "model_auc": 0.5660391288298265
+    },
+    {
+      "q": 0.2,
+      "threshold": 14.0,
+      "n": 267,
+      "red_win_rate": 0.5468164794007491,
+      "baseline_acc": 0.5468164794007491,
+      "model_acc": 0.5842696629213483,
+      "model_auc": 0.5755688893920525
+    },
+    {
+      "q": 0.3,
+      "threshold": 252.0,
+      "n": 395,
+      "red_win_rate": 0.5215189873417722,
+      "baseline_acc": 0.5215189873417722,
+      "model_acc": 0.5468354430379747,
+      "model_auc": 0.5411465557096624
+    }
+  ]
+}
