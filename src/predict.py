@@ -736,6 +736,8 @@ def _predict_historical(arts: dict, row: pd.Series, red: str, blue: str) -> dict
         "predicted_winner": predicted_winner,
         "winner_name": winner_name,
         "mode": "historical(v1)",
+        "model_variant": "hgb_day4a_v1_with_odds",
+        "data_source": "features_with_odds.csv",
         "fight_date": str(fight_date),
         "diffs": diffs,
     }
@@ -789,6 +791,8 @@ def _predict_synthetic(
         "predicted_winner": predicted_winner,
         "winner_name": winner_name,
         "mode": "synthetic(v2)",
+        "model_variant": "hgb_no_odds_v2",
+        "data_source": "fighter snapshots from ufc_cleaned.csv",
         "fight_date": "upcoming",
         "red_data_from": red_profile["date"],
         "blue_data_from": blue_profile["date"],

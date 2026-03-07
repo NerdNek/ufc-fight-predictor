@@ -1,9 +1,10 @@
 """
 streamlit_app.py - UFC Fight Predictor Web UI
 
-Loads the dataset to populate fighter dropdowns,
-runs model inference via predict_matchup(), and displays results
-with win probability and matchup advantage charts.
+Cascading filter flow:
+  1. Gender (Male / Female / All)
+  2. Weight Class (filtered by gender)
+  3. Fighter selection (filtered by weight class)
 
 Supports two prediction modes:
   - Historical: exact matchup found in dataset (with-odds model)
@@ -16,7 +17,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 
-from src.predict import predict_matchup, get_all_fighter_names
+from src.predict import predict_matchup
 
 # ---- Page config ----
 st.set_page_config(
@@ -25,64 +26,110 @@ st.set_page_config(
     layout="centered",
 )
 
-# ---- Cached data loader ----
+# ---- Constants ----
 CLEANED_PATH = pathlib.Path(__file__).parent / "data" / "processed" / "ufc_cleaned.csv"
 
-# Chart colors
 RED_COLOR = "#E63946"
 BLUE_COLOR = "#457B9D"
 BG_COLOR = "#0E1117"
 TEXT_COLOR = "#FAFAFA"
 
+MALE_WEIGHT_CLASSES = [
+    "Flyweight", "Bantamweight", "Featherweight", "Lightweight",
+    "Welterweight", "Middleweight", "Light Heavyweight", "Heavyweight",
+    "Catch Weight",
+]
+FEMALE_WEIGHT_CLASSES = [
+    "Women's Strawweight", "Women's Flyweight",
+    "Women's Bantamweight", "Women's Featherweight",
+]
 
+
+# ---- Cached data loaders ----
 @st.cache_data
-def load_fighter_names() -> list[str]:
-    """Return a sorted list of unique fighter names from the dataset."""
-    df = pd.read_csv(CLEANED_PATH, usecols=["RedFighter", "BlueFighter"])
-    fighters = sorted(
-        set(df["RedFighter"].dropna().unique()) | set(df["BlueFighter"].dropna().unique())
-    )
-    return fighters
+def load_fighter_index() -> pd.DataFrame:
+    """
+    Build a fighter index: each fighter's most recent weight class and gender.
+    Returns DataFrame with columns: Fighter, WeightClass, Gender.
+    """
+    df = pd.read_csv(CLEANED_PATH, usecols=["RedFighter", "BlueFighter", "WeightClass", "Gender", "Date"])
+    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+
+    red = df[["RedFighter", "WeightClass", "Gender", "Date"]].rename(columns={"RedFighter": "Fighter"})
+    blue = df[["BlueFighter", "WeightClass", "Gender", "Date"]].rename(columns={"BlueFighter": "Fighter"})
+    combined = pd.concat([red, blue], ignore_index=True)
+
+    # Keep the most recent appearance per fighter
+    combined = combined.sort_values("Date", ascending=False).drop_duplicates(subset="Fighter", keep="first")
+    return combined[["Fighter", "WeightClass", "Gender"]].reset_index(drop=True)
 
 
-@st.cache_data
-def load_weight_classes() -> list[str]:
-    """Return sorted list of unique weight classes from the dataset."""
-    df = pd.read_csv(CLEANED_PATH, usecols=["WeightClass"])
-    return sorted(df["WeightClass"].dropna().unique().tolist())
+fighter_index = load_fighter_index()
 
 
-fighters = load_fighter_names()
-weight_classes = load_weight_classes()
+def get_filtered_fighters(gender: str, weight_class: str) -> list[str]:
+    """Filter fighters by gender and weight class selection."""
+    filtered = fighter_index.copy()
+
+    if gender != "All":
+        filtered = filtered[filtered["Gender"] == gender]
+
+    if weight_class != "All Divisions":
+        filtered = filtered[filtered["WeightClass"] == weight_class]
+
+    return sorted(filtered["Fighter"].unique().tolist())
+
+
+def get_weight_classes_for_gender(gender: str) -> list[str]:
+    """Return weight classes available for the selected gender."""
+    if gender == "MALE":
+        return MALE_WEIGHT_CLASSES
+    elif gender == "FEMALE":
+        return FEMALE_WEIGHT_CLASSES
+    else:
+        return MALE_WEIGHT_CLASSES + FEMALE_WEIGHT_CLASSES
+
 
 # ---- Header ----
 st.title("🥊 UFC Fight Predictor")
 st.markdown("Predict the outcome of a UFC fight using machine learning.")
 
-# ---- Fighter Inputs ----
+# ---- Step 1: Gender + Weight Class row ----
+filter_col1, filter_col2 = st.columns(2)
+
+with filter_col1:
+    gender = st.selectbox("Division", options=["All", "MALE", "FEMALE"], index=0,
+                          format_func=lambda x: {"All": "All Fighters", "MALE": "Men's", "FEMALE": "Women's"}[x])
+
+with filter_col2:
+    wc_options = ["All Divisions"] + get_weight_classes_for_gender(gender)
+    weight_class = st.selectbox("Weight Class", options=wc_options, index=0)
+
+# ---- Step 2: Filtered fighter lists ----
+available_fighters = get_filtered_fighters(gender, weight_class)
+
+if len(available_fighters) == 0:
+    st.warning("No fighters found for this filter combination.")
+    st.stop()
+
 col1, col2 = st.columns(2)
 
 with col1:
-    red_fighter = st.selectbox("Red Corner", options=fighters, index=None, placeholder="Choose a fighter…")
+    red_fighter = st.selectbox("Red Corner", options=available_fighters, index=None,
+                               placeholder="Choose a fighter...")
 
 with col2:
-    blue_fighter = st.selectbox("Blue Corner", options=fighters, index=None, placeholder="Choose a fighter…")
+    blue_fighter = st.selectbox("Blue Corner", options=available_fighters, index=None,
+                                placeholder="Choose a fighter...")
 
-# ---- Fight Context (collapsible) ----
-with st.expander("⚙️ Fight Context (optional)"):
-    ctx_col1, ctx_col2, ctx_col3 = st.columns(3)
+# ---- Step 3: Fight context ----
+with st.expander("Fight Context (optional)"):
+    ctx_col1, ctx_col2 = st.columns(2)
 
     with ctx_col1:
-        weight_class = st.selectbox(
-            "Weight Class",
-            options=["Auto-detect"] + weight_classes,
-            index=0,
-        )
-
-    with ctx_col2:
         title_bout = st.checkbox("Title Bout", value=False)
 
-    with ctx_col3:
+    with ctx_col2:
         num_rounds = st.selectbox("Rounds", options=[3, 5], index=0)
 
 # ---- Predict button ----
@@ -92,13 +139,14 @@ if st.button("Predict", type="primary", use_container_width=True):
     elif red_fighter == blue_fighter:
         st.warning("Please select two different fighters.")
     else:
-        wc = None if weight_class == "Auto-detect" else weight_class
+        # Use selected weight class if specific, otherwise auto-detect
+        wc_override = None if weight_class == "All Divisions" else weight_class
 
-        with st.spinner("Running model inference…"):
+        with st.spinner("Running model inference..."):
             try:
                 result = predict_matchup(
                     red_fighter, blue_fighter,
-                    weight_class=wc,
+                    weight_class=wc_override,
                     title_bout=title_bout,
                     num_rounds=num_rounds,
                 )
@@ -111,17 +159,26 @@ if st.button("Predict", type="primary", use_container_width=True):
         winner = result["winner_name"]
         corner = result["predicted_winner"]
         mode = result["mode"]
+        model_variant = result.get("model_variant", "unknown")
         diffs = result.get("diffs", {})
 
-        # ---- Results display ----
+        # ---- Results ----
         st.markdown("---")
         st.subheader("Prediction")
 
-        # Mode badge
-        if mode == "historical":
-            st.caption("**Historical mode** -- exact matchup found in dataset (with-odds model)")
+        if "historical" in mode:
+            st.caption(
+                f"📋 **Mode: Historical** (with odds) · "
+                f"Model: `{model_variant}` · "
+                f"Fight date: {result.get('fight_date', '?')}"
+            )
         else:
-            st.caption("**Synthetic mode** -- matchup constructed from individual fighter stats (no-odds model)")
+            st.caption(
+                f"🔧 **Mode: Synthetic** (no odds) · "
+                f"Model: `{model_variant}` · "
+                f"Red stats: {result.get('red_data_from', '?')} · "
+                f"Blue stats: {result.get('blue_data_from', '?')}"
+            )
 
         m1, m2 = st.columns(2)
         m1.metric("P(Red wins)", f"{prob_red:.1%}")
@@ -139,11 +196,9 @@ if st.button("Predict", type="primary", use_container_width=True):
         fig1.patch.set_facecolor(BG_COLOR)
         ax1.set_facecolor(BG_COLOR)
 
-        # Stacked horizontal bar
         ax1.barh(0, prob_red, color=RED_COLOR, height=0.6, label=red_fighter)
         ax1.barh(0, prob_blue, left=prob_red, color=BLUE_COLOR, height=0.6, label=blue_fighter)
 
-        # Labels inside bars
         if prob_red >= 0.12:
             ax1.text(prob_red / 2, 0, f"{prob_red:.0%}",
                      ha="center", va="center", color="white", fontsize=13, fontweight="bold")
@@ -166,7 +221,6 @@ if st.button("Predict", type="primary", use_container_width=True):
 
         # ---- Graph 2: Matchup Advantage Diffs ----
         if diffs:
-            # Filter out zero diffs for cleaner chart
             nonzero_diffs = {k: v for k, v in diffs.items() if abs(v) > 0.01}
 
             if nonzero_diffs:
@@ -183,7 +237,6 @@ if st.button("Predict", type="primary", use_container_width=True):
 
                 bars = ax2.barh(labels, values, color=colors, height=0.6, edgecolor="none")
 
-                # Value labels at bar ends
                 for bar, val in zip(bars, values):
                     x_pos = bar.get_width()
                     ha = "left" if val >= 0 else "right"
@@ -205,7 +258,7 @@ if st.button("Predict", type="primary", use_container_width=True):
                 plt.close(fig2)
 
         # ---- Footer caption ----
-        if mode == "historical":
+        if "historical" in mode:
             st.caption(f"Based on fight data from {result['fight_date']}")
         else:
             st.caption(
