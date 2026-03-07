@@ -81,6 +81,7 @@ When the matchup does not exist, the system constructs a synthetic feature row f
 | Majority Class (always Red) | 56.28% | - | - |
 | **Odds Only (LogReg)** | **66.85%** | **0.723** | - |
 | Logistic Regression (77 features) | 62.94% | 0.699 | - |
+| LogReg v2 (rate-based diffs, 73 features) | 63.55% | 0.699 | - |
 | HGB Odds-Only | 63.25% | 0.678 | 0.64 |
 | HGB Skill-Only | 59.19% | 0.598 | 0.68 |
 | HGB Full (86 features, with odds) | 63.17% | 0.692 | 0.64 |

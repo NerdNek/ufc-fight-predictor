@@ -6,8 +6,10 @@ Compares against majority class and odds-only baselines.
 
 Usage:
     python src/train_baseline.py
+    python src/train_baseline.py --input data/processed/features_with_odds_v2.csv --out-suffix _v2
 """
 
+import argparse
 import pandas as pd
 import numpy as np
 import json
@@ -261,7 +263,8 @@ def train_logistic_regression(X_train: pd.DataFrame, X_test: pd.DataFrame,
 # ============================================================================
 
 def save_artifacts(model, scaler, metrics: dict, baselines: list, 
-                   split_info: dict, feature_cols: list, project_root: Path):
+                   split_info: dict, feature_cols: list, project_root: Path,
+                   suffix: str = ""):
     """Save model and metrics to disk."""
     print("\n[SAVE] Saving artifacts...")
     
@@ -271,7 +274,7 @@ def save_artifacts(model, scaler, metrics: dict, baselines: list,
     reports_dir.mkdir(exist_ok=True)
     
     # Save model
-    model_path = models_dir / 'logreg_baseline.joblib'
+    model_path = models_dir / f'logreg_baseline{suffix}.joblib'
     joblib.dump({'model': model, 'scaler': scaler, 'feature_cols': feature_cols}, model_path)
     print(f"   Model saved: {model_path}")
     
@@ -288,7 +291,7 @@ def save_artifacts(model, scaler, metrics: dict, baselines: list,
     }
     
     # Save metrics
-    metrics_path = reports_dir / 'baseline_metrics.json'
+    metrics_path = reports_dir / f'baseline_metrics{suffix}.json'
     with open(metrics_path, 'w') as f:
         json.dump(results, f, indent=2)
     print(f"   Metrics saved: {metrics_path}")
@@ -340,11 +343,25 @@ def print_summary(results: dict):
 # ============================================================================
 
 def main():
+    parser = argparse.ArgumentParser(description="Train baseline LogReg model.")
+    parser.add_argument(
+        "--input", default=None,
+        help="Path to features CSV (default: data/processed/features_with_odds.csv)"
+    )
+    parser.add_argument(
+        "--out-suffix", default="",
+        help="Suffix for output filenames, e.g. _v2"
+    )
+    args = parser.parse_args()
+
     # Setup paths
     project_root = Path(__file__).parent.parent
-    # Use features_with_odds.csv for accuracy-focused modeling.
-    # Swap to features_no_odds.csv for skill-only (no sportsbook leakage) modeling.
-    input_path = project_root / 'data' / 'processed' / 'features_with_odds.csv'
+    if args.input:
+        input_path = Path(args.input)
+        if not input_path.is_absolute():
+            input_path = project_root / input_path
+    else:
+        input_path = project_root / 'data' / 'processed' / 'features_with_odds.csv'
     
     print("=" * 60)
     print("UFC Fight Predictor - Baseline Model Training")
@@ -374,7 +391,8 @@ def main():
     # 6. Save artifacts
     results = save_artifacts(
         model, scaler, metrics, baselines, 
-        split_info, feature_cols, project_root
+        split_info, feature_cols, project_root,
+        suffix=args.out_suffix
     )
     
     # 7. Print summary
