@@ -6,6 +6,43 @@ A machine learning system that predicts UFC fight outcomes using pre-fight stati
 
 ---
 
+## Model Card (Summary)
+
+### Intended Use
+
+Predict UFC fight outcomes using historical pre-fight statistics. Two modes:
+
+- **Mode A — Historical backtest**: uses a real bout row from the dataset with betting odds → `hgb_day4a_v1_with_odds`
+- **Mode B — Synthetic matchup**: builds a matchup from each fighter's latest career stats, no odds required → `hgb_no_odds_v2`
+
+### Data & Features
+
+- **6,528 fights** (2010–2024) from publicly available UFC statistics
+- Post-fight columns removed to prevent data leakage (`Finish`, `FinishRound`, `TotalFightTimeSecs`, etc.)
+- 74+ differential features: physical stats, career records, striking/grappling rates, rankings, stance matchups, weight class, and fight context
+- Betting odds features are optional and dominate predictive power when available
+
+### Evaluation
+
+- **Time-based split** (no shuffle): train on older fights (80%), test on newer fights (20%)
+- Train: 5,222 fights (2010–2022) · Test: 1,306 fights (2022–2024)
+- Metrics: accuracy, ROC-AUC, log loss, Brier score
+
+### Key Findings
+
+- **Odds-only baseline is strongest** (AUC 0.723) — consistent with betting market efficiency
+- **v2 rate-based diffs** improved the no-odds model (+0.005 AUC) by aligning feature definitions with what the synthetic builder produces
+- **Close-odds fights** behave near coin flip, consistent with market uncertainty
+
+### Limitations
+
+- **Cross-division hypotheticals are out-of-distribution**: the model was never trained on HW-vs-FW style matchups. The UI blocks these by default
+- **Synthetic mode lacks betting lines**: uses a weaker no-odds model (AUC 0.605 vs 0.692)
+- **Dataset-specific feature schema**: schema locking prevents feature drift, but the model is tied to this particular dataset's column definitions
+- **Not betting advice**: this is a portfolio/learning project, not a wagering system
+
+---
+
 ## Architecture Overview
 
 ```mermaid
@@ -115,7 +152,7 @@ Constructs a synthetic feature row from each fighter's most recent career stats.
 | HGB No-Odds v1 (68 features) | 58.42% | 0.600 | 0.69 | |
 | **HGB No-Odds v2 (68 features)** | **59.11%** | **0.605** | 0.69 | **Mode B model** ↑ +0.005 AUC |
 
-### Key Findings
+### Notable Results
 
 - **Odds-only LogReg** remains the strongest single-signal model (AUC 0.723), consistent with market efficiency
 - **v2 rate-based diffs** improved the no-odds model by +0.005 AUC and +0.69pp accuracy — the scale now matches the synthetic builder
