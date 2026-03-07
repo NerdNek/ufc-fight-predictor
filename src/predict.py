@@ -30,6 +30,7 @@ from joblib import load
 PROJECT_ROOT = Path(__file__).parent.parent
 MODEL_WITH_ODDS = PROJECT_ROOT / "models" / "hgb_day4a.joblib"
 MODEL_NO_ODDS = PROJECT_ROOT / "models" / "hgb_no_odds.joblib"
+MODEL_NO_ODDS_V2 = PROJECT_ROOT / "models" / "hgb_no_odds_v2.joblib"
 FEATURES_PATH = PROJECT_ROOT / "data" / "processed" / "features_with_odds.csv"
 CLEANED_PATH = PROJECT_ROOT / "data" / "processed" / "ufc_cleaned.csv"
 SCHEMA_PATH = PROJECT_ROOT / "data" / "processed" / "feature_schema.json"
@@ -615,23 +616,23 @@ def _load_artifacts() -> dict:
     # Validate required files
     for path, label, hint in [
         (MODEL_WITH_ODDS, "With-odds model", "python src/train_tree_day4a.py"),
-        (MODEL_NO_ODDS, "No-odds model", "python src/train_no_odds.py"),
+        (MODEL_NO_ODDS_V2, "No-odds v2 model", "python src/train_no_odds.py --input data/processed/features_no_odds_v2.csv --out-suffix _v2"),
         (FEATURES_PATH, "Feature data", "python src/features.py"),
         (CLEANED_PATH, "Cleaned data", "python src/clean.py"),
     ]:
         if not path.exists():
-            raise FileNotFoundError(f"{label} not found: {path} — Run: {hint}")
+            raise FileNotFoundError(f"{label} not found: {path} -- Run: {hint}")
 
     bundle_odds = load(MODEL_WITH_ODDS)
-    bundle_no_odds = load(MODEL_NO_ODDS)
+    bundle_no_odds_v2 = load(MODEL_NO_ODDS_V2)
     features_df = pd.read_csv(FEATURES_PATH)
     cleaned_df = pd.read_csv(CLEANED_PATH)
 
     _cached_artifacts = {
         "model_with_odds": bundle_odds["model"],
         "model_cols_with_odds": bundle_odds["feature_cols"],
-        "model_no_odds": bundle_no_odds["model"],
-        "model_cols_no_odds": bundle_no_odds["feature_cols"],
+        "model_no_odds": bundle_no_odds_v2["model"],
+        "model_cols_no_odds": bundle_no_odds_v2["feature_cols"],
         "features_df": features_df,
         "cleaned_df": cleaned_df,
     }
@@ -734,7 +735,7 @@ def _predict_historical(arts: dict, row: pd.Series, red: str, blue: str) -> dict
         "proba_red": float(proba),
         "predicted_winner": predicted_winner,
         "winner_name": winner_name,
-        "mode": "historical",
+        "mode": "historical(v1)",
         "fight_date": str(fight_date),
         "diffs": diffs,
     }
@@ -787,7 +788,7 @@ def _predict_synthetic(
         "proba_red": float(proba),
         "predicted_winner": predicted_winner,
         "winner_name": winner_name,
-        "mode": "synthetic",
+        "mode": "synthetic(v2)",
         "fight_date": "upcoming",
         "red_data_from": red_profile["date"],
         "blue_data_from": blue_profile["date"],
@@ -821,7 +822,7 @@ def main():
         sys.exit(1)
 
     print(f"\n[LOAD] With-odds model: {MODEL_WITH_ODDS.name}")
-    print(f"[LOAD] No-odds model:  {MODEL_NO_ODDS.name}")
+    print(f"[LOAD] No-odds model:  {MODEL_NO_ODDS_V2.name}")
     print(f"[LOAD] Features:       {FEATURES_PATH.name}")
     print(f"[LOAD] Cleaned data:   {CLEANED_PATH.name}")
 
@@ -839,7 +840,7 @@ def main():
         sys.exit(1)
 
     print(f"       Mode: {result['mode'].upper()}")
-    if result["mode"] == "historical":
+    if "historical" in result["mode"]:
         print(f"       Based on fight from: {result['fight_date']}")
     else:
         print(f"       Red data from: {result.get('red_data_from', '?')}")
