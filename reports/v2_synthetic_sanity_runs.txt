@@ -1,0 +1,82 @@
+V2 Synthetic Sanity Run Report
+Model: hgb_no_odds_v2.joblib (Mode B)
+Historical model: hgb_day4a.joblib (Mode A, unchanged)
+
+======================================================================
+Case 1: Max Holloway vs Charles Oliveira (previously suspicious)
+======================================================================
+  [Primary] Max Holloway vs Charles Oliveira
+  Mode:            historical(v1)
+  P(Red wins):     0.9277 (92.8%)
+  Predicted:       Max Holloway
+  Fight date:      2015-08-23
+
+  Key diffs driving prediction:
+    Reach                    12.70
+    Age                      -2.00
+    Sig. Strikes            -40.53
+    Takedowns                 1.07
+    Sub. Attempts             1.04
+    Height                   -2.54
+    Win Streak               -2.00
+    WC Rank                  -2.00
+    P4P Rank                  0.00
+
+  [Forced Synthetic v2 comparison]
+  Synthetic v2 P(Red): 0.9250 (92.5%)
+    SigStrDif                 3.76
+    AvgTDDif                 -2.00
+    AvgSubAttDif             -2.40
+    SubDif                  -10.00
+    KODif                     7.00
+
+
+======================================================================
+Case 2: Jon Jones vs Tai Tuivasa (one-sided)
+======================================================================
+  [One-sided] Jon Jones vs Tai Tuivasa
+  Mode:            synthetic(v2)
+  P(Red wins):     0.9110 (91.1%)
+  Predicted:       Jon Jones
+  Red data from:   2024-11-16
+  Blue data from:  2024-08-17
+
+  Key diffs driving prediction:
+    Reach                    22.86
+    Age                       6.00
+    Sig. Strikes              0.61
+    Takedowns                 1.89
+    Sub. Attempts             0.50
+    Height                    5.08
+    Win Streak               18.00
+    WC Rank                 -10.00
+    P4P Rank                -15.00
+
+
+======================================================================
+Case 3: Dustin Poirier vs Justin Gaethje (close/toss-up)
+======================================================================
+  [Toss-up] Dustin Poirier vs Justin Gaethje
+  Mode:            historical(v1)
+  P(Red wins):     0.7453 (74.5%)
+  Predicted:       Dustin Poirier
+  Fight date:      2023-07-29
+
+  Key diffs driving prediction:
+    Reach                    -5.08
+    Age                       0.00
+    Sig. Strikes              1.48
+    Takedowns                -1.13
+    Sub. Attempts            -1.30
+    Height                    5.08
+    Win Streak                0.00
+    WC Rank                  -1.00
+    P4P Rank                -15.00
+
+  [Forced Synthetic v2 comparison]
+  Synthetic v2 P(Red): 0.3371 (33.7%)
+    SigStrDif                -1.48
+    AvgTDDif                  1.13
+    AvgSubAttDif              1.30
+    SubDif                    4.00
+    KODif                     6.00
