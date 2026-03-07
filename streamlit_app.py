@@ -11,6 +11,7 @@ Supports two prediction modes:
   - Synthetic:  any two fighters (no-odds model)
 """
 
+import json
 import pathlib
 import streamlit as st
 import pandas as pd
@@ -28,6 +29,7 @@ st.set_page_config(
 
 # ---- Constants ----
 CLEANED_PATH = pathlib.Path(__file__).parent / "data" / "processed" / "ufc_cleaned.csv"
+DISPLAY_STATS_PATH = pathlib.Path(__file__).parent / "reports" / "feature_display_stats.json"
 
 RED_COLOR = "#E63946"
 BLUE_COLOR = "#457B9D"
@@ -65,6 +67,31 @@ def load_fighter_index() -> pd.DataFrame:
 
 
 fighter_index = load_fighter_index()
+
+
+@st.cache_data
+def load_display_stats() -> dict:
+    """Load feature display normalization stats (mean/std per feature)."""
+    if DISPLAY_STATS_PATH.exists():
+        with open(DISPLAY_STATS_PATH) as f:
+            return json.load(f)
+    return {}
+
+
+display_stats = load_display_stats()
+
+# Reverse mapping: display label -> column name (from predict.py EXPLAINABILITY_DIFFS)
+DIFF_LABEL_TO_COL = {
+    "Reach": "ReachDif",
+    "Age": "AgeDif",
+    "Sig. Strikes": "SigStrDif",
+    "Takedowns": "AvgTDDif",
+    "Sub. Attempts": "AvgSubAttDif",
+    "Height": "HeightDif",
+    "Win Streak": "WinStreakDif",
+    "WC Rank": "wc_rank_diff",
+    "P4P Rank": "pfp_rank_diff",
+}
 
 
 def get_filtered_fighters(gender: str, weight_class: str) -> list[str]:
@@ -224,38 +251,87 @@ if st.button("Predict", type="primary", use_container_width=True):
             nonzero_diffs = {k: v for k, v in diffs.items() if abs(v) > 0.01}
 
             if nonzero_diffs:
-                st.markdown("#### Matchup Advantages")
-                st.caption("Positive (red) = Red corner advantage. Negative (blue) = Blue corner advantage.")
+                # Pick stats set based on mode
+                if "historical" in mode:
+                    feat_stats = display_stats.get("v1_with_odds", {}).get("stats", {})
+                else:
+                    feat_stats = display_stats.get("v2_no_odds", {}).get("stats", {})
 
-                labels = list(nonzero_diffs.keys())
-                values = list(nonzero_diffs.values())
-                colors = [RED_COLOR if v > 0 else BLUE_COLOR for v in values]
+                # Compute z-scores (labels are display names, stats keys are column names)
+                z_diffs = {}
+                for k, v in nonzero_diffs.items():
+                    col_name = DIFF_LABEL_TO_COL.get(k, k)  # map display label -> column name
+                    fs = feat_stats.get(col_name)
+                    if fs and fs.get("std", 0) > 0:
+                        z = (v - fs["mean"]) / fs["std"]
+                        z_diffs[k] = max(-3.0, min(3.0, z))
 
-                fig2, ax2 = plt.subplots(figsize=(8, max(2.0, len(labels) * 0.45)))
-                fig2.patch.set_facecolor(BG_COLOR)
-                ax2.set_facecolor(BG_COLOR)
+                if z_diffs:
+                    st.markdown("#### Matchup Advantages (standardized)")
+                    st.caption("Values are z-scores vs training distribution. Positive (red) favors Red, negative (blue) favors Blue.")
 
-                bars = ax2.barh(labels, values, color=colors, height=0.6, edgecolor="none")
+                    labels = list(z_diffs.keys())
+                    values = list(z_diffs.values())
+                    colors = [RED_COLOR if v > 0 else BLUE_COLOR for v in values]
 
-                for bar, val in zip(bars, values):
-                    x_pos = bar.get_width()
-                    ha = "left" if val >= 0 else "right"
-                    offset = 0.3 if val >= 0 else -0.3
-                    ax2.text(x_pos + offset, bar.get_y() + bar.get_height() / 2,
-                             f"{val:+.1f}", ha=ha, va="center",
-                             color=TEXT_COLOR, fontsize=10)
+                    fig2, ax2 = plt.subplots(figsize=(8, max(2.0, len(labels) * 0.45)))
+                    fig2.patch.set_facecolor(BG_COLOR)
+                    ax2.set_facecolor(BG_COLOR)
 
-                ax2.axvline(0, color="#555555", linewidth=0.8, linestyle="-")
-                ax2.tick_params(axis="y", colors=TEXT_COLOR, labelsize=11)
-                ax2.tick_params(axis="x", colors="#777777", labelsize=9)
-                ax2.xaxis.set_major_formatter(mticker.FormatStrFormatter("%.1f"))
+                    bars = ax2.barh(labels, values, color=colors, height=0.6, edgecolor="none")
 
-                for spine in ax2.spines.values():
-                    spine.set_visible(False)
+                    for bar, val in zip(bars, values):
+                        x_pos = bar.get_width()
+                        ha = "left" if val >= 0 else "right"
+                        offset = 0.1 if val >= 0 else -0.1
+                        ax2.text(x_pos + offset, bar.get_y() + bar.get_height() / 2,
+                                 f"{val:+.2f}σ", ha=ha, va="center",
+                                 color=TEXT_COLOR, fontsize=10)
 
-                fig2.tight_layout()
-                st.pyplot(fig2, use_container_width=True)
-                plt.close(fig2)
+                    ax2.set_xlim(-3.5, 3.5)
+                    ax2.axvline(0, color="#555555", linewidth=0.8, linestyle="-")
+                    ax2.tick_params(axis="y", colors=TEXT_COLOR, labelsize=11)
+                    ax2.tick_params(axis="x", colors="#777777", labelsize=9)
+                    ax2.xaxis.set_major_formatter(mticker.FormatStrFormatter("%.1f"))
+
+                    for spine in ax2.spines.values():
+                        spine.set_visible(False)
+
+                    fig2.tight_layout()
+                    st.pyplot(fig2, use_container_width=True)
+                    plt.close(fig2)
+
+                # Optional raw diffs toggle
+                if st.checkbox("Show raw diff values", value=False):
+                    labels_raw = list(nonzero_diffs.keys())
+                    values_raw = list(nonzero_diffs.values())
+                    colors_raw = [RED_COLOR if v > 0 else BLUE_COLOR for v in values_raw]
+
+                    fig3, ax3 = plt.subplots(figsize=(8, max(2.0, len(labels_raw) * 0.45)))
+                    fig3.patch.set_facecolor(BG_COLOR)
+                    ax3.set_facecolor(BG_COLOR)
+
+                    bars3 = ax3.barh(labels_raw, values_raw, color=colors_raw, height=0.6, edgecolor="none")
+
+                    for bar, val in zip(bars3, values_raw):
+                        x_pos = bar.get_width()
+                        ha = "left" if val >= 0 else "right"
+                        offset = 0.3 if val >= 0 else -0.3
+                        ax3.text(x_pos + offset, bar.get_y() + bar.get_height() / 2,
+                                 f"{val:+.1f}", ha=ha, va="center",
+                                 color=TEXT_COLOR, fontsize=10)
+
+                    ax3.axvline(0, color="#555555", linewidth=0.8, linestyle="-")
+                    ax3.tick_params(axis="y", colors=TEXT_COLOR, labelsize=11)
+                    ax3.tick_params(axis="x", colors="#777777", labelsize=9)
+                    ax3.xaxis.set_major_formatter(mticker.FormatStrFormatter("%.1f"))
+
+                    for spine in ax3.spines.values():
+                        spine.set_visible(False)
+
+                    fig3.tight_layout()
+                    st.pyplot(fig3, use_container_width=True)
+                    plt.close(fig3)
 
         # ---- Footer caption ----
         if "historical" in mode:
