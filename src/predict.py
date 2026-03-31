@@ -569,28 +569,44 @@ OOD_CAPS = {
     "KODif":        (-10, 10),
 }
 
+# Human-readable labels for OOD cap columns (for user-facing warnings).
+OOD_FRIENDLY_LABELS = {
+    "SigStrDif": "Sig. Strikes differential",
+    "AvgTDDif": "Takedowns differential",
+    "AvgSubAttDif": "Sub. Attempts differential",
+    "SubDif": "Submission wins differential",
+    "KODif": "KO wins differential",
+}
 
-def check_ood_features(row_df: pd.DataFrame) -> pd.DataFrame:
+
+def check_ood_features(row_df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     """
-    Clip high-risk diff features to fixed caps and print warnings.
+    Clip high-risk diff features to fixed caps and collect warnings.
 
     This prevents extreme synthetic values from producing
     overconfident predictions.  Rank diffs are excluded (already
     clipped in build_synthetic_row).
+
+    Returns
+    -------
+    (clipped_df, warnings) : tuple[pd.DataFrame, list[str]]
+        The clipped DataFrame and a list of human-readable warning strings
+        for any features that were out-of-distribution.
     """
     row_df = row_df.copy()
+    warnings: list[str] = []
     for col, (lo, hi) in OOD_CAPS.items():
         if col not in row_df.columns:
             continue
         val = row_df[col].iloc[0]
         if val < lo or val > hi:
             clipped = max(lo, min(hi, val))
-            print(
-                f"[OOD WARNING] {col} = {val:.4f} outside [{lo}, {hi}] "
-                f"-> clipped to {clipped:.4f}"
+            label = OOD_FRIENDLY_LABELS.get(col, col)
+            warnings.append(
+                f"⚠️ {label} was extreme and has been capped for stability."
             )
             row_df[col] = clipped
-    return row_df
+    return row_df, warnings
 
 
 # ============================================================================
@@ -772,7 +788,7 @@ def _predict_synthetic(
     row_df = row_df.fillna(0)
 
     # OOD guardrail: clip extreme synthetic diffs before prediction
-    row_df = check_ood_features(row_df)
+    row_df, ood_warnings = check_ood_features(row_df)
 
     X = enforce_schema_lock(row_df, model_cols)
 
@@ -797,6 +813,7 @@ def _predict_synthetic(
         "red_data_from": red_profile["date"],
         "blue_data_from": blue_profile["date"],
         "diffs": diffs,
+        "ood_warnings": ood_warnings,
     }
 
 

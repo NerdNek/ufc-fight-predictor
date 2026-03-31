@@ -212,6 +212,10 @@ if st.button("Predict", type="primary", use_container_width=True):
                 "results may be unrealistic."
             )
 
+        # Show OOD clipping warnings (synthetic mode only)
+        for warn_msg in result.get("ood_warnings", []):
+            st.warning(warn_msg)
+
         prob_red = result["proba_red"]
         prob_blue = 1.0 - prob_red
         winner = result["winner_name"]
